@@ -24,7 +24,8 @@ option(BUILD_OPENMP "Enable support for OpenMP" OFF)
 option(BUILD_LOG "Enable verbose log" OFF)
 
 include_directories(src)
-include_directories(3rd)
+include_directories(3rd_party/eigen/)
+include_directories(3rd_party/libigl/include)
 
 if(BUILD_PERFORMANCE_TEST)
     add_definitions(-DPERFORMANCE_TEST)
