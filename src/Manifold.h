@@ -9,8 +9,8 @@ class Manifold {
 public:
 	Manifold();
 	~Manifold();
-	void ProcessManifold(const MatrixX& V, const MatrixXi& F, int resolution,
-		MatrixX* out_V, MatrixXi* out_F);
+	void ProcessManifold(const MatrixD& V, const MatrixI& F, int resolution,
+		MatrixD* out_V, MatrixI* out_F);
 
 protected:
 	void BuildTree(int resolution);
@@ -25,8 +25,8 @@ protected:
 private:	
 	Octree* tree_;
 	Vector3 min_corner_, max_corner_;
-	MatrixX V_;
-	MatrixXi F_;
+	MatrixD V_;
+	MatrixI F_;
 
 	std::vector<Vector3> vertices_;
 	std::vector<Vector3i> face_indices_;

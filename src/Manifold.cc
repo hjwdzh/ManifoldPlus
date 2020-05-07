@@ -16,8 +16,8 @@ Manifold::~Manifold()
 	tree_ = 0;
 }
 
-void Manifold::ProcessManifold(const MatrixX& V, const MatrixXi& F,
-	int resolution, MatrixX* out_V, MatrixXi* out_F)
+void Manifold::ProcessManifold(const MatrixD& V, const MatrixI& F,
+	int resolution, MatrixD* out_V, MatrixI* out_F)
 {
 	V_ = V;
 	F_ = F;
@@ -25,8 +25,8 @@ void Manifold::ProcessManifold(const MatrixX& V, const MatrixXi& F,
 	BuildTree(resolution);
 	ConstructManifold();
 
-	*out_V = MatrixX(vertices_.size(), 3);
-	*out_F = MatrixXi(face_indices_.size(), 3);
+	*out_V = MatrixD(vertices_.size(), 3);
+	*out_F = MatrixI(face_indices_.size(), 3);
 	for (int i = 0; i < vertices_.size(); ++i)
 		out_V->row(i) = vertices_[i];
 	for (int i = 0; i < face_indices_.size(); ++i)

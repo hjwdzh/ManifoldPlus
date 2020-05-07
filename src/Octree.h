@@ -13,17 +13,17 @@ class Octree
 {
 public:
 	Octree();
-	Octree(const Vector3 min_c, const Vector3 max_c, const MatrixXi& faces);
+	Octree(const Vector3 min_c, const Vector3 max_c, const MatrixI& faces);
 	Octree(const Vector3& min_c, const Vector3& volume_size);
 	~Octree();
 
 	bool IsExterior(const Vector3 &p);
 
 	bool Intersection(int face_index, const Vector3& min_corner,
-		const Vector3& size, const MatrixX& V);
+		const Vector3& size, const MatrixD& V);
 
 
-	void Split(const MatrixX& V);
+	void Split(const MatrixD& V);
 	void BuildConnection();
 	void ConnectTree(Octree* l, Octree* r, int dim);
 	void ConnectEmptyTree(Octree* l, Octree* r, int dim);

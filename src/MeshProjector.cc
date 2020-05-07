@@ -1,6 +1,7 @@
 #include "MeshProjector.h"
 
 #include <map>
+#include <set>
 #include <unordered_set>
 
 #include <Eigen/Dense>
@@ -10,7 +11,6 @@
 #include <igl/point_mesh_squared_distance.h>
 
 #include "Intersection.h"
-#include "Loss.h"
 
 #define ZERO_THRES 1e-9
 MeshProjector::MeshProjector()
@@ -144,8 +144,8 @@ void MeshProjector::ComputeIndependentSet() {
 	}	
 }
 
-void MeshProjector::Project(const MatrixX& V, const MatrixXi& F,
-	MatrixX* out_V, MatrixXi* out_F)
+void MeshProjector::Project(const MatrixD& V, const MatrixI& F,
+	MatrixD* out_V, MatrixI* out_F)
 {
 	V_ = V;
 	F_ = F;
@@ -158,7 +158,6 @@ void MeshProjector::Project(const MatrixX& V, const MatrixXi& F,
 	SplitVertices();
 	ComputeHalfEdge();
 	ComputeIndependentSet();
-	printf("Optimize...\n");
 	IterativeOptimize(len);
 
 	out_V->conservativeResize(out_V_.rows(), 3);
@@ -453,7 +452,7 @@ void MeshProjector::OptimizePosition(int v, const Vector3& p, FT len) {
 }
 
 void MeshProjector::OptimizeNormals() {
-	MatrixX prev_norm = out_N_;
+	MatrixD prev_norm = out_N_;
 	UpdateVertexNormal(0);
 	igl::per_face_normals(out_V_, out_F_, out_FN_);
 	for (int i = 0; i < out_N_.rows(); ++i) {
@@ -484,7 +483,7 @@ void MeshProjector::OptimizeNormals() {
 void MeshProjector::PreserveSharpFeatures(FT len_thres) {
 	/*
 	UpdateNearestDistance();
-	MatrixX origin_FN;
+	MatrixD origin_FN;
 	igl::per_face_normals(V_, F_, origin_FN);
 	igl::per_face_normals(out_V_, out_F_, out_FN_);
 	auto consistent = [&](int src_f0, int src_f1) {
@@ -538,15 +537,15 @@ void MeshProjector::PreserveSharpFeatures(FT len_thres) {
 	}
 
 
-	MatrixX P(vertex_positions.size(), 3);
+	MatrixD P(vertex_positions.size(), 3);
 	memcpy(P.data(), vertex_positions.data(),
 		sizeof(Vector3) * vertex_positions.size());
 	VectorX sqrD;
 	VectorXi I;
-	MatrixX tarP;
+	MatrixD tarP;
 	*/
 	UpdateNearestDistance();
-	MatrixX origin_FN;
+	MatrixD origin_FN;
 	igl::per_face_normals(V_, F_, origin_FN);
 	auto consistent = [&](int src_f0, int src_f1) {
 		if (src_f0 == src_f1)
@@ -641,12 +640,12 @@ void MeshProjector::PreserveSharpFeatures(FT len_thres) {
 			}
 		}
 	}
-	MatrixX P(vertex_update_position.size(), 3);
+	MatrixD P(vertex_update_position.size(), 3);
 	memcpy(P.data(), vertex_update_position.data(),
 		sizeof(Vector3) * vertex_update_position.size());
 	VectorX sqrD;
 	VectorXi I;
-	MatrixX tarP;
+	MatrixD tarP;
 	sharp_vertices_.resize(out_V_.rows(), 0);
 	sharp_positions_.resize(out_V_.rows());
 	igl::point_mesh_squared_distance(P, V_, F_, sqrD, I, tarP);

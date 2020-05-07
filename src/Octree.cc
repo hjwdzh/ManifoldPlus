@@ -14,7 +14,7 @@ Octree::Octree()
 }
 
 
-Octree::Octree(const Vector3 min_c, const Vector3 max_c, const MatrixXi& faces)
+Octree::Octree(const Vector3 min_c, const Vector3 max_c, const MatrixI& faces)
 {
 	memset(children_, 0, sizeof(Octree*) * 8);
 	memset(connection_, 0, sizeof(Octree*) * 6);
@@ -88,7 +88,7 @@ bool Octree::IsExterior(const Vector3& p)
 }
 
 bool Octree::Intersection(int Find_ex, const Vector3& min_corner,
-	const Vector3& size, const MatrixX& V)
+	const Vector3& size, const MatrixD& V)
 {
 	float boxcenter[3];
 	float boxhalfsize[3];
@@ -108,7 +108,7 @@ bool Octree::Intersection(int Find_ex, const Vector3& min_corner,
 	return TriBoxOverlap(boxcenter, boxhalfsize, triverts);
 }
 
-void Octree::Split(const MatrixX& V)
+void Octree::Split(const MatrixD& V)
 {
 	level_ += 1;
 	number_ = 0;

@@ -44,6 +44,8 @@ set(
     src/GridIndex.h
     src/Intersection.h
     src/Intersection.cc
+    src/IO.h
+    src/IO.cc
     src/main.cc
     src/Manifold.h
     src/Manifold.cc

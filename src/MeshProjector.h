@@ -13,8 +13,8 @@ public:
 	void ComputeIndependentSet();
 	void UpdateVertexNormal(int conservative);
 	void IterativeOptimize(FT len);
-	void Project(const MatrixX& V, const MatrixXi& F,
-		MatrixX* out_V, MatrixXi* out_F);
+	void Project(const MatrixD& V, const MatrixI& F,
+		MatrixD* out_V, MatrixI* out_F);
 	void UpdateNearestDistance();
 	int BoundaryCheck();
 	void SplitVertices();
@@ -23,8 +23,8 @@ public:
 	void PreserveSharpFeatures(FT len_thres);
 private:
 	std::vector<std::vector<int> > vertex_groups_;
-	MatrixX V_, out_V_, target_V_, out_N_, out_FN_;
-	MatrixXi F_, out_F_;
+	MatrixD V_, out_V_, target_V_, out_N_, out_FN_;
+	MatrixI F_, out_F_;
 	VectorXi V2E_, E2E_;
 
 	VectorX sqrD_;

@@ -13,7 +13,8 @@ typedef Eigen::Vector3i Vector3i;
 typedef Eigen::Matrix<int, 4, 1> Vector4i;
 typedef Eigen::VectorXi VectorXi;
 
-typedef Eigen::Matrix<FT,Eigen::Dynamic,Eigen::Dynamic,Eigen::RowMajor> MatrixX;
-typedef Eigen::MatrixXi MatrixXi;
+typedef Eigen::Matrix<FT,Eigen::Dynamic,Eigen::Dynamic,Eigen::RowMajor> MatrixD;
+typedef Eigen::Matrix<int,Eigen::Dynamic,Eigen::Dynamic
+	,Eigen::RowMajor> MatrixI;
 
 #endif
