@@ -31,3 +31,6 @@
 *.out
 *.app
 *.DS_Store
+
+examples/
+build/

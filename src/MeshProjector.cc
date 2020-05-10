@@ -1,5 +1,7 @@
 #include "MeshProjector.h"
 
+#include <chrono>
+#include <fstream>
 #include <map>
 #include <set>
 #include <unordered_set>
@@ -11,6 +13,7 @@
 #include <igl/point_mesh_squared_distance.h>
 
 #include "Intersection.h"
+#include "IO.h"
 
 #define ZERO_THRES 1e-9
 MeshProjector::MeshProjector()
@@ -18,16 +21,16 @@ MeshProjector::MeshProjector()
 
 void MeshProjector::ComputeHalfEdge()
 {
-	V2E_.resize(out_V_.rows());
-	E2E_.resize(out_F_.rows() * 3);
+	V2E_.resize(num_V_);
+	E2E_.resize(num_F_ * 3);
 
-	for (int i = 0; i < V2E_.size(); ++i)
+	for (int i = 0; i < num_V_; ++i)
 		V2E_[i] = -1;
-	for (int i = 0; i < E2E_.size(); ++i)
+	for (int i = 0; i < num_F_ * 3; ++i)
 		E2E_[i] = -1;
 
 	std::map<std::pair<int, int>, int> dedges;
-	for (int i = 0; i < out_F_.rows(); ++i) {
+	for (int i = 0; i < num_F_; ++i) {
 		for (int j = 0; j < 3; ++j) {
 			int v0 = out_F_(i, j);
 			int v1 = out_F_(i, (j + 1) % 3);
@@ -43,13 +46,14 @@ void MeshProjector::ComputeHalfEdge()
 			}
 		}
 	}
-	for (int i = 0; i < V2E_.size(); ++i) {
+//#ifdef DEBUG_
+	for (int i = 0; i < num_V_; ++i) {
 		if (V2E_[i] == -1) {
 			printf("independent vertex! %d\n", i);
 			exit(0);
 		}
 	}
-	for (int i = 0; i < E2E_.size(); ++i) {
+	for (int i = 0; i < num_F_ * 3; ++i) {
 		if (E2E_[i] == -1) {
 			printf("Wrong edge!\n");
 			exit(0);
@@ -59,11 +63,12 @@ void MeshProjector::ComputeHalfEdge()
 			exit(0);
 		}
 	}
+//#endif
 }
 
 void MeshProjector::SplitVertices() {
-	std::vector<std::unordered_set<int> > vlinks(out_V_.rows());
-	for (int i = 0; i < out_F_.rows(); ++i) {
+	std::vector<std::unordered_set<int> > vlinks(num_V_);
+	for (int i = 0; i < num_F_; ++i) {
 		for (int j = 0; j < 3; ++j) {
 			int v0 = out_F_(i, j);
 			vlinks[v0].insert(i * 3 + j);
@@ -71,8 +76,8 @@ void MeshProjector::SplitVertices() {
 	}
 	int invalid_vertex = 0;
 	std::vector<std::pair<int, int> > insert_vertex_info;
-	int num_vertices = out_V_.rows();
-	for (int i = 0; i < out_V_.rows(); ++i) {
+	int num_vertices = num_V_;
+	for (int i = 0; i < num_V_; ++i) {
 		int deid = V2E_[i];
 		int deid0 = deid;
 		int vertex_count = 0;
@@ -115,8 +120,8 @@ void MeshProjector::SplitVertices() {
 void MeshProjector::ComputeIndependentSet() {
 	int marked_vertices = 0;
 	int group_id = 0;
-	std::vector<int> vertex_colors(out_V_.rows(), -1);
-	while (marked_vertices < out_V_.rows()) {
+	std::vector<int> vertex_colors(num_V_, -1);
+	while (marked_vertices < num_V_) {
 		for (int i = 0; i < vertex_colors.size(); ++i) {
 			vertex_groups_.push_back(std::vector<int>());
 			auto& group = vertex_groups_.back();
@@ -154,35 +159,77 @@ void MeshProjector::Project(const MatrixD& V, const MatrixI& F,
 
 	FT len = (V.row(out_F_(0,0)) - V.row(out_F_(0,1))).norm();
 
+	num_F_ = out_F_.rows();
+	num_V_ = out_V_.rows();
+
+	tree_.init(V_,F_);
+
 	ComputeHalfEdge();
 	SplitVertices();
 	ComputeHalfEdge();
 	ComputeIndependentSet();
 	IterativeOptimize(len);
+	exit(0);
+	AdaptiveRefine(len);
 
-	out_V->conservativeResize(out_V_.rows(), 3);
-	out_F->conservativeResize(out_F_.rows(), 3);
-	for (int i = 0; i < out_V_.rows(); ++i) {
+	out_V->conservativeResize(num_V_, 3);
+	out_F->conservativeResize(num_F_, 3);
+	for (int i = 0; i < num_V_; ++i) {
 		out_V->row(i) = out_V_.row(i);
 	}
-	for (int i = 0; i < out_F_.rows(); ++i) {
+	for (int i = 0; i < num_F_; ++i) {
 		out_F->row(i) = out_F_.row(i);
 	}
 }
 
 void MeshProjector::UpdateNearestDistance()
 {
-	igl::point_mesh_squared_distance(out_V_, V_, F_, sqrD_, I_, target_V_);
+	//igl::point_mesh_squared_distance(out_V_, V_, F_, sqrD_, I_, target_V_);
+	tree_.squared_distance(V_,F_,out_V_,sqrD_,I_,target_V_);
 }
 
-void MeshProjector::UpdateVertexNormal(int conservative)
+void MeshProjector::UpdateFaceNormal(int i)
 {
-	if (out_N_.rows() != out_V_.rows())
-		out_N_.resize(out_V_.rows(), 3);
-	for (int i = 0; i < out_V_.rows(); ++i) {
-		int deid = V2E_[i];
-		int deid0 = deid;
-		Vector3 n(0,0,0);
+	int deid = V2E_[i];
+	int deid0 = deid;
+	do {
+		int f = deid / 3;
+		int v0 = out_F_(f, deid % 3);
+		int v1 = out_F_(f, (deid + 1) % 3);
+		int v2 = out_F_(f, (deid + 2) % 3);
+		Vector3 d0 = out_V_.row(v1) - out_V_.row(v0);
+		Vector3 d1 = out_V_.row(v2) - out_V_.row(v0);
+		d0.normalize();
+		d1.normalize();
+		auto vn = d0.cross(d1);		
+		double l = vn.norm();
+		if (l > 0)
+			vn /= l;
+		out_FN_.row(f) = vn;
+	} while (deid0 != deid);
+}
+
+void MeshProjector::UpdateVertexNormal(int i, int conservative) {
+	int deid = V2E_[i];
+	int deid0 = deid;
+	Vector3 n(0,0,0);
+	do {
+		int f = deid / 3;
+		int v0 = out_F_(f, deid % 3);
+		int v1 = out_F_(f, (deid + 1) % 3);
+		int v2 = out_F_(f, (deid + 2) % 3);
+		Vector3 d0 = out_V_.row(v1) - out_V_.row(v0);
+		Vector3 d1 = out_V_.row(v2) - out_V_.row(v0);
+		d0.normalize();
+		d1.normalize();
+		auto vn = d0.cross(d1);
+		double l = vn.norm();
+		vn = vn * (asin(l) / l);
+		n += vn;
+		deid = E2E_[deid / 3 * 3 + (deid + 2) % 3];
+	} while (deid0 != deid);
+
+	if (conservative) {
 		do {
 			int f = deid / 3;
 			int v0 = out_F_(f, deid % 3);
@@ -190,32 +237,23 @@ void MeshProjector::UpdateVertexNormal(int conservative)
 			int v2 = out_F_(f, (deid + 2) % 3);
 			Vector3 d0 = out_V_.row(v1) - out_V_.row(v0);
 			Vector3 d1 = out_V_.row(v2) - out_V_.row(v0);
-			d0.normalize();
-			d1.normalize();
-			auto vn = d0.cross(d1);
-			double l = vn.norm();
-			vn = vn * (asin(l) / l);
-			n += vn;
+			auto vn = d0.cross(d1).normalized();
+			if (n.dot(vn) < 0) {
+				n -= n.dot(vn) * vn;
+			}
 			deid = E2E_[deid / 3 * 3 + (deid + 2) % 3];
 		} while (deid0 != deid);
+	}
 
-		if (conservative) {
-			do {
-				int f = deid / 3;
-				int v0 = out_F_(f, deid % 3);
-				int v1 = out_F_(f, (deid + 1) % 3);
-				int v2 = out_F_(f, (deid + 2) % 3);
-				Vector3 d0 = out_V_.row(v1) - out_V_.row(v0);
-				Vector3 d1 = out_V_.row(v2) - out_V_.row(v0);
-				auto vn = d0.cross(d1).normalized();
-				if (n.dot(vn) < 0) {
-					n -= n.dot(vn) * vn;
-				}
-				deid = E2E_[deid / 3 * 3 + (deid + 2) % 3];
-			} while (deid0 != deid);
-		}
+	out_N_.row(i) = n.normalized();
+}
 
-		out_N_.row(i) = n.normalized();
+void MeshProjector::UpdateVertexNormals(int conservative)
+{
+	if (out_N_.rows() != num_V_)
+		out_N_.resize(num_V_, 3);
+	for (int i = 0; i < num_V_; ++i) {
+		UpdateVertexNormal(i, conservative);
 	}
 }
 
@@ -223,7 +261,7 @@ int MeshProjector::BoundaryCheck() {
 	igl::per_face_normals(out_V_, out_F_, out_FN_);
 	int consistent = 0;
 	int inconsistent = 0;
-	for (int i = 0; i < out_V_.rows(); ++i) {
+	for (int i = 0; i < num_V_; ++i) {
 		Vector3 n = out_N_.row(i);
 		int deid = V2E_[i];
 		int deid0 = deid;
@@ -245,10 +283,21 @@ int MeshProjector::BoundaryCheck() {
 }
 
 void MeshProjector::IterativeOptimize(FT len) {
-	UpdateVertexNormal(1);
-	std::vector<std::pair<FT, int> > indices(out_V_.size());
+	UpdateVertexNormals(1);
+	std::vector<std::pair<FT, int> > indices(num_V_);
+
 	UpdateNearestDistance();
-	for (int iter = 0; iter < 4; ++iter) {
+	igl::per_face_normals(out_V_, out_F_, out_FN_);
+	int iter = 0;
+	std::vector<int> active_vertices(num_V_, 0);
+	std::vector<int> active_vertices_temp(num_V_);
+	for (int i = 0; i < num_V_; ++i) {
+		active_vertices[i] = i;
+	}
+	int num_active = num_V_;
+
+	while (true) {
+		/*
 		for (int i = 0; i < sharp_vertices_.size(); ++i) {
 			if (sharp_vertices_[i] > 0) {
 				sqrD_[i] = 10000 * sharp_vertices_[i] + (sharp_positions_[i]
@@ -257,26 +306,409 @@ void MeshProjector::IterativeOptimize(FT len) {
 				out_V_.row(i) = sharp_positions_[i];
 			}
 		}
-		for (int i = 0; i < out_V_.rows(); ++i) {
-			indices[i] = std::make_pair(sqrD_[i], i);
+		*/
+
+		for (int i = 0; i < num_active; ++i) {
+			int vid = active_vertices[i];
+			indices[i] = std::make_pair(sqrD_[vid], vid);
 		}
-		std::sort(indices.rbegin(), indices.rend());
-		for (int i = 0; i < out_V_.rows(); ++i) {
-			OptimizePosition(indices[i].second,
-				target_V_.row(indices[i].second), len);
+		bool changed = false;
+		std::sort(indices.begin(), indices.begin() + num_active);
+		double max_change = 0;
+		int num_active_temp = 0;
+
+		for (int i = num_active - 1; i >= 0; --i) {
+			int vid = indices[i].second;
+
+			double d0 = (out_V_.row(vid) - target_V_.row(vid)).norm();
+			OptimizePosition(vid, target_V_.row(vid), len);
+			double d1 = (out_V_.row(vid) - target_V_.row(vid)).norm();
+
+			UpdateFaceNormal(vid);
+			auto vn = out_N_.row(vid);
+
+			UpdateVertexNormal(vid, 0);
+			OptimizeNormal(vid, vn, out_N_.row(vid));
+
+			if (std::abs(d1 - d0) > ZERO_THRES
+				|| vn.dot(out_N_.row(vid)) < 1 - ZERO_THRES)
+			{
+				if (std::abs(d1 - d0) > 1e-6)
+					changed = true;
+				if (std::abs(d1 - d0) > std::abs(max_change))
+					max_change = d1 - d0;
+				active_vertices_temp[num_active_temp++] = vid;
+			}
 		}
-		OptimizeNormals();
-		UpdateNearestDistance();
+
+		if (num_active_temp > out_V_.rows() / 2)
+			UpdateNearestDistance();
+		else {
+			MatrixD P(num_active_temp, 3);
+			for (int i = 0; i < num_active_temp; ++i) {
+				P.row(i) = out_V_.row(active_vertices_temp[i]);
+			}
+			MatrixD targetP;
+			VectorX sqrD;
+			VectorXi I;
+			tree_.squared_distance(V_,F_,P,sqrD,I,targetP);
+
+			double dis = 0;
+			for (int i = 0; i < num_active_temp; ++i) {
+				target_V_.row(active_vertices_temp[i]) = targetP.row(i);
+				double m = std::abs(sqrD[i] - sqrD_[active_vertices_temp[i]]);
+				if (m > dis)
+					dis = m;
+				sqrD_[active_vertices_temp[i]] = sqrD[i];
+			}
+		}
+
+
+		std::unordered_set<int> novel_activate;
+		for (int i = 0; i < num_active_temp; ++i) {
+			int p = active_vertices_temp[i];
+			novel_activate.insert(p);
+			int deid = V2E_[p];
+			int deid0 = deid;
+			do {
+				novel_activate.insert(out_F_(deid / 3, (deid + 1) % 3));
+				deid = E2E_[deid / 3 * 3 + (deid + 2) % 3];
+			} while (deid0 != deid);
+		}
+
+		num_active = 0;
+		for (auto& p : novel_activate)
+			active_vertices[num_active++] = p;
+		/*
 		if (iter == 2)
 			PreserveSharpFeatures(len);
+		*/
+		if (!changed)
+			break;
+		iter += 1;
+	}
+
+}
+
+void MeshProjector::Highlight(int id, FT len) {
+	UpdateNearestDistance();
+	double max_dis = 0;
+	std::vector<FT> distances(sqrD_.size());
+	memcpy(distances.data(), sqrD_.data(), sizeof(FT) * sqrD_.size());
+	for (auto& d : distances)
+		d = sqrt(d);
+	std::sort(distances.rbegin(), distances.rend());
+	max_dis = distances[0];
+	printf("Max distance %lf\n", max_dis / len);
+ 	char buffer[1024];
+ 	sprintf(buffer, "%05d-tri.obj", id);
+ 	WriteOBJ(buffer, out_V_, out_F_);
+ 	sprintf(buffer, "%05d-point.obj", id);
+ 	std::ofstream os(buffer);
+ 	for (int i = 0; i < sqrD_.size(); ++i) {
+ 		double dis = sqrt(sqrD_[i]);
+ 		if (dis > max_dis - 1e-7) {
+ 			printf("Id %d\n", i);
+ 			Vector3 d1 = target_V_.row(i) - out_V_.row(i);
+ 			printf("Distance0 %lf\n", d1.norm());
+ 			OptimizePosition(i, target_V_.row(i), len, true);
+ 			Vector3 d2 = target_V_.row(i) - out_V_.row(i);
+ 			printf("Distance1 %lf\n", d2.norm());
+ 			Vector3 v = out_V_.row(i);
+ 			Vector3 n = out_N_.row(i);
+ 			os << "v " << v[0] << " " << v[1] << " " << v[2] << " 0 0.99 0\n";
+ 			v += n * 1e-3;
+ 			os << "v " << v[0] << " " << v[1] << " " << v[2] << " 0.99 0 0\n";
+ 			Vector3 p = target_V_.row(i);
+ 			os << "v " << p[0] << " " << p[1] << " " << p[2] << " 0.99 0.99 0\n";
+ 		}
+ 	}
+ 	os.close();
+}
+
+void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
+	std::vector<int> candidates;
+	candidates.reserve(num_F_ * 3 / 2);
+	for (int i = 0; i < num_F_ * 3; ++i) {
+		if (E2E_[i] > i)
+			candidates.push_back(i);
+	}
+
+	printf("Start distance!\n");
+	UpdateNearestDistance();
+	double max_dis = 0;
+	for (int i = 0; i < sqrD_.size(); ++i) {
+		double dis = sqrt(sqrD_[i]);
+		if (dis > max_dis)
+			max_dis = dis;
+	}
+	printf("Max distance %lf\n", max_dis);
+	
+	auto AddVertex = [&](const Vector3& p, const Vector3& n) {
+		if (num_V_ >= out_V_.rows()) {
+			out_V_.conservativeResize(out_V_.rows() * 2, 3);
+			out_N_.conservativeResize(out_N_.rows() * 2, 3);			
+		}
+		out_V_.row(num_V_) = p;
+		out_N_.row(num_V_) = n;
+		num_V_ += 1;
+	};
+
+	auto AddFace = [&](const Vector3i& f, const Vector3& n) {
+		if (num_F_ >= out_F_.rows()) {
+			out_F_.conservativeResize(out_F_.rows() * 2, 3);
+			out_FN_.conservativeResize(out_FN_.rows() * 2, 3);
+		}
+		out_F_.row(num_F_) = f;
+		out_FN_.row(num_F_) = n;
+		num_F_ += 1;
+	};
+
+	for (int iter = 0; iter < 4; ++iter) {
+		printf("Boundary iter %d with candidates %d\n", iter, candidates.size());
+		printf("Step1...\n");
+		// Collect dedges to split
+		MatrixD P(candidates.size(), 3);
+		MatrixD targetP;
+		for (int i = 0; i < candidates.size(); ++i) {
+			int deid = candidates[i];
+			int v0 = out_F_(deid / 3, deid % 3);
+			int v1 = out_F_(deid / 3, (deid + 1) % 3);
+			P.row(i) = (out_V_.row(v0) + out_V_.row(v1)) * 0.5;
+		}
+		igl::point_mesh_squared_distance(P, V_, F_, sqrD_, I_, targetP);
+		int top = 0;
+		for (int i = 0; i < sqrD_.size(); ++i) {
+			double dis = sqrt(sqrD_[i]);
+			if (dis > len * ratio) {
+				P.row(top) = P.row(i);
+				targetP.row(top) = targetP.row(i);
+				sqrD_[top] = sqrD_[i];
+				candidates[top++] = candidates[i];
+			}
+		}
+		candidates.resize(top);
+
+		int prev_vertex_num = num_V_;
+		int prev_face_num = num_F_;
+
+		// insert vertices
+		printf("Step2...\n");
+		std::map<int, Vector3i > face_splits;
+		for (int i = 0; i < top; ++i) {
+			int deid = candidates[i];
+
+			for (int j = 0; j < 2; ++j) {
+				int f = deid / 3;
+				auto it = face_splits.find(f);
+				if (it == face_splits.end()) {
+					Vector3i v(-1, -1, -1);
+					v[deid % 3] = num_V_;
+					face_splits[f] = v;
+				} else {
+					if (it->second[deid % 3] != -1) {
+						printf("OMG!\n");
+						exit(0);
+					}
+					it->second[deid % 3] = num_V_;
+				}
+				deid = E2E_[deid];
+			}
+
+			int v0 = out_F_(deid / 3, deid % 3);
+			AddVertex(P.row(i), out_N_.row(v0));
+		}
+
+		// insert faces
+		printf("Step3...\n");
+		std::map<std::pair<int, int>, int> dedges;
+		for (auto& info : face_splits) {
+			int f = info.first;
+			auto fn = out_FN_.row(f);
+			auto splits = info.second;
+			int count = 0;
+			for (int j = 0; j < 3; ++j) {
+				if (splits[j] >= 0)
+					count += 1;
+			}
+			if (count == 3) {
+				int v0 = out_F_(f, 0);
+				int v1 = out_F_(f, 1);
+				int v2 = out_F_(f, 2);
+				int nv0 = splits[0];
+				int nv1 = splits[1];
+				int nv2 = splits[2];
+				out_F_.row(f) = Vector3i(v0, nv0, nv2);
+				AddFace(Vector3i(nv0, nv1, nv2), fn);
+				AddFace(Vector3i(nv0, v1, nv1), fn);
+				AddFace(Vector3i(nv2, nv1, v2), fn);
+			}
+			else if (count == 2) {
+				int j = 0;
+				while (splits[j] != -1) {
+					j += 1;
+				}
+				int v0 = out_F_(f, j);
+				int v1 = out_F_(f, (j + 1) % 3);
+				int v2 = out_F_(f, (j + 2) % 3);
+				int nv0 = splits[(j + 1) % 3];
+				int nv1 = splits[(j + 2) % 3];
+
+				dedges[std::make_pair(v1, v0)] = E2E_[f * 3 + j];
+
+				out_F_.row(f) = Vector3i(v0, v1, nv0);
+				AddFace(Vector3i(v0, nv0, nv1), fn);
+				AddFace(Vector3i(nv1, nv0, v2), fn);
+			}
+			else if (count == 1) {
+				int j = 0;
+				while (splits[j] == -1) {
+					j += 1;
+				}
+				int v0 = out_F_(f, j);
+				int v1 = out_F_(f, (j + 1) % 3);
+				int v2 = out_F_(f, (j + 2) % 3);
+
+				dedges[std::make_pair(v2, v1)] = E2E_[f * 3 + (j + 1) % 3];
+				dedges[std::make_pair(v0, v2)] = E2E_[f * 3 + (j + 2) % 3];
+
+				int nv0 = splits[j];
+				out_F_.row(f) = Vector3i(v0, nv0, v2);
+				AddFace(Vector3i(nv0, v1, v2), fn);
+			} else {
+				printf("Wrong splits!\n");
+				exit(0);
+			}
+		}
+
+		// insert E2E and V2E
+		printf("Step4...\n");
+		std::vector<int> update_face_set;
+		std::set<int> update_vertex_set;
+		update_face_set.reserve(face_splits.size() + num_F_ - prev_face_num);
+		while (V2E_.size() < num_V_) {
+			V2E_.conservativeResize(V2E_.size() * 2);
+		}
+		while (E2E_.size() < num_F_ * 3) {
+			E2E_.conservativeResize(E2E_.size() * 2);
+		}
+		for (auto& info : face_splits) {
+			auto f = out_F_.row(info.first);
+			update_face_set.push_back(info.first);
+			for (int i = 0; i < 3; ++i) {
+				int v0 = f[i];
+				int v1 = f[(i + 1) % 3];
+				int dedge = info.first * 3 + i;
+				V2E_[v0] = dedge;
+				if (v0 < prev_vertex_num)
+					update_vertex_set.insert(v0);
+				dedges[std::make_pair(v0, v1)] = dedge;
+			}
+		}
+		for (int k = prev_face_num; k < num_F_; ++k) {
+			auto f = out_F_.row(k);
+			update_face_set.push_back(k);
+			for (int i = 0; i < 3; ++i) {
+				int v0 = f[i];
+				int v1 = f[(i + 1) % 3];
+				int dedge = k * 3 + i;
+				V2E_[v0] = dedge;
+				if (v0 < prev_vertex_num)
+					update_vertex_set.insert(v0);
+				dedges[std::make_pair(v0, v1)] = dedge;
+			}
+		}
+		for (auto& info : dedges) {
+			int deid = info.second;
+			auto key = std::make_pair(info.first.second, info.first.first);
+			int rdeid = dedges[key];
+			E2E_[deid] = rdeid;
+			E2E_[rdeid] = deid;
+		}
+
+		// update candidates
+		candidates.clear();
+		for (auto& info : face_splits) {
+			auto f = out_F_.row(info.first);
+			for (int i = 0; i < 3; ++i) {
+				int v0 = f[i];
+				if (v0 >= prev_vertex_num) {
+					int dedge = info.first * 3 + i;
+					if (E2E_[dedge] > dedge) {
+						candidates.push_back(dedge);
+					}
+				}
+			}
+		}
+		for (int k = prev_face_num; k < num_F_; ++k) {
+			auto f = out_F_.row(k);
+			for (int i = 0; i < 3; ++i) {
+				int v0 = f[i];
+				if (v0 >= prev_vertex_num) {
+					int dedge = k * 3 + i;
+					if (E2E_[dedge] > dedge) {
+						candidates.push_back(dedge);
+					}
+				}
+			}
+		}
+
+
+		// Project inserted vertices and update 
+		for (int i = prev_vertex_num; i < num_V_; ++ i) {
+			auto vn = out_N_.row(i);
+			UpdateVertexNormal(i, 0);
+			OptimizeNormal(i, vn, out_N_.row(i));
+		}
+		for (int inner_iter = 0; inner_iter < 3; ++inner_iter) {
+			// update vertex positions
+			printf("Vertex position...\n");
+			std::vector<std::pair<double, int> > indices(top);
+			for (int i = 0; i < indices.size(); ++i) {
+				indices[i] = std::make_pair(sqrD_[i], i + prev_vertex_num);
+			}
+			std::sort(indices.rbegin(), indices.rend());
+			for (auto& ind : indices) {
+				int i = ind.second;
+				OptimizePosition(i, targetP.row(i - prev_vertex_num), len);
+			}
+			// update face normals
+			printf("Face normal...\n");
+			for (auto& f : update_face_set) {
+				int v0 = out_F_(f, 0);
+				int v1 = out_F_(f, 1);
+				int v2 = out_F_(f, 2);
+				Vector3 d0 = out_V_.row(v1) - out_V_.row(v0);
+				Vector3 d1 = out_V_.row(v2) - out_V_.row(v0);
+				Vector3 n = d0.cross(d1);
+				n.normalize();
+				out_FN_.row(f) = n;
+			}
+			// update internal vertex normals
+			printf("Vertex normal...\n");
+			for (auto& i : update_vertex_set) {
+				auto vn = out_N_.row(i);
+				UpdateVertexNormal(i, 0);
+				OptimizeNormal(i, vn, out_N_.row(i));				
+			}
+			// update new vertex normals
+			for (int i = prev_vertex_num; i < num_V_; ++ i) {
+				auto vn = out_N_.row(i);
+				UpdateVertexNormal(i, 0);
+				OptimizeNormal(i, vn, out_N_.row(i));
+			}			
+		}
+		printf("Step6...\n");
+		break;
 	}
 }
 
-void MeshProjector::OptimizePosition(int v, const Vector3& p, FT len) {
+void MeshProjector::OptimizePosition(int v, const Vector3& p, FT len, bool debug) {
 	std::vector<Vector3> A;
 	std::vector<FT> B;
 	int deid = V2E_[v];
 	int deid0 = deid;
+
 	do {
 		int v0 = out_F_(deid / 3, deid % 3);
 		int v1 = out_F_(deid / 3, (deid + 1) % 3);
@@ -288,7 +720,7 @@ void MeshProjector::OptimizePosition(int v, const Vector3& p, FT len) {
 			d = d.cross(vn[i]).normalized();
 			FT b = d.dot(out_V_.row(v1) - out_V_.row(v0));
 			
-			b -= 1e-5;
+			//b -= len * 0.05;
 
 			A.push_back(d);
 			B.push_back(b);
@@ -396,6 +828,8 @@ void MeshProjector::OptimizePosition(int v, const Vector3& p, FT len) {
 #endif
 
 		FT max_step = tar_step;
+		if (debug)
+			printf("Max step before %lf %lf\n", max_step);
 		int constraint_id = -1;
 		for (int j = 0; j < A.size(); ++j) {
 			if (attached_dimensions[j])
@@ -408,6 +842,12 @@ void MeshProjector::OptimizePosition(int v, const Vector3& p, FT len) {
 				constraint_id = j;
 				max_step = step;
 			}
+		}
+		if (debug)
+			printf("Max step after %lf\n", max_step);
+
+		if (debug) {
+			printf("Target dir <%f %f %f>\n", tar_dir[0], tar_dir[1], tar_dir[2]);
 		}
 
 		if (max_step < 1e-6)
@@ -451,32 +891,37 @@ void MeshProjector::OptimizePosition(int v, const Vector3& p, FT len) {
 	}
 }
 
+void MeshProjector::OptimizeNormal(int i, const Vector3& vn,
+	const Vector3& target_vn) {
+	Vector3 d = target_vn - vn;
+	FT max_step = 1.0;
+	int deid = V2E_[i];
+	int deid0 = deid;
+	do {
+		Vector3 fn = out_FN_.row(deid / 3);
+		FT denominator = d.dot(fn);
+		if (denominator < -ZERO_THRES) {
+			FT step = -fn.dot(vn) / denominator;
+			if (step < max_step) {
+				max_step = step;
+			}
+		}
+		deid = E2E_[deid / 3 * 3 + (deid + 2) % 3];
+	} while (deid0 != deid);
+	if (max_step < 0) {
+		max_step = 0;
+	}
+	out_N_.row(i) = vn + max_step * d;
+}
+
 void MeshProjector::OptimizeNormals() {
 	MatrixD prev_norm = out_N_;
-	UpdateVertexNormal(0);
+	UpdateVertexNormals(0);
 	igl::per_face_normals(out_V_, out_F_, out_FN_);
-	for (int i = 0; i < out_N_.rows(); ++i) {
+	for (int i = 0; i < num_V_; ++i) {
 		Vector3 vn = prev_norm.row(i);
 		Vector3 target_vn = out_N_.row(i);
-		Vector3 d = target_vn - vn;
-		FT max_step = 1.0;
-		int deid = V2E_[i];
-		int deid0 = deid;
-		do {
-			Vector3 fn = out_FN_.row(deid / 3);
-			FT denominator = d.dot(fn);
-			if (denominator < -ZERO_THRES) {
-				FT step = -fn.dot(vn) / denominator;
-				if (step < max_step) {
-					max_step = step;
-				}
-			}
-			deid = E2E_[deid / 3 * 3 + (deid + 2) % 3];
-		} while (deid0 != deid);
-		if (max_step < 0) {
-			max_step = 0;
-		}
-		out_N_.row(i) = vn + max_step * d;
+		OptimizeNormal(i, vn, target_vn);
 	}
 }
 
@@ -500,7 +945,7 @@ void MeshProjector::PreserveSharpFeatures(FT len_thres) {
 
 	std::vector<int> sharp_edges;
 	std::vector<Vector3> vertex_positions;
-	for (int i = 0; i < out_F_.rows(); ++i) {
+	for (int i = 0; i < num_F_; ++i) {
 		for (int j = 0; j < 3; ++j) {
 			int v0 = out_F_(i, j);
 			int v1 = out_F_(i, (j + 1) % 3);
@@ -559,9 +1004,9 @@ void MeshProjector::PreserveSharpFeatures(FT len_thres) {
 		return true;
 	};
 
-	std::vector<std::set<std::pair<int, int> > > vfeatures(out_V_.rows());
+	std::vector<std::set<std::pair<int, int> > > vfeatures(num_V_);
 
-	for (int i = 0; i < out_F_.rows(); ++i) {
+	for (int i = 0; i < num_F_; ++i) {
 		for (int j = 0; j < 3; ++j) {
 			int v0 = out_F_(i, j);
 			int v1 = out_F_(i, (j + 1) % 3);
@@ -646,8 +1091,8 @@ void MeshProjector::PreserveSharpFeatures(FT len_thres) {
 	VectorX sqrD;
 	VectorXi I;
 	MatrixD tarP;
-	sharp_vertices_.resize(out_V_.rows(), 0);
-	sharp_positions_.resize(out_V_.rows());
+	sharp_vertices_.resize(num_V_, 0);
+	sharp_positions_.resize(num_V_);
 	igl::point_mesh_squared_distance(P, V_, F_, sqrD, I, tarP);
 
 	for (int i = 0; i < sqrD.size(); i++) {
@@ -666,8 +1111,8 @@ void MeshProjector::PreserveSharpFeatures(FT len_thres) {
 
 	/*
 	std::ofstream os("../examples/sharps.obj");
-	sharp_vertices_.resize(out_V_.rows(), 0);
-	sharp_positions_.resize(out_V_.rows());
+	sharp_vertices_.resize(num_V_, 0);
+	sharp_positions_.resize(num_V_);
 	igl::point_mesh_squared_distance(P, V_, F_, sqrD, I, tarP);
 	for (int i = 0; i < sqrD.size(); i += 2) {
 		int dedge = sharp_edges[i / 2];

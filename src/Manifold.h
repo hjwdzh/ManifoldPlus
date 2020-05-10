@@ -9,7 +9,7 @@ class Manifold {
 public:
 	Manifold();
 	~Manifold();
-	void ProcessManifold(const MatrixD& V, const MatrixI& F, int resolution,
+	void ProcessManifold(const MatrixD& V, const MatrixI& F, int depth,
 		MatrixD* out_V, MatrixI* out_F);
 
 protected:

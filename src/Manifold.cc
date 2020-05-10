@@ -17,12 +17,12 @@ Manifold::~Manifold()
 }
 
 void Manifold::ProcessManifold(const MatrixD& V, const MatrixI& F,
-	int resolution, MatrixD* out_V, MatrixI* out_F)
+	int depth, MatrixD* out_V, MatrixI* out_F)
 {
 	V_ = V;
 	F_ = F;
 
-	BuildTree(resolution);
+	BuildTree(depth);
 	ConstructManifold();
 
 	*out_V = MatrixD(vertices_.size(), 3);
@@ -36,14 +36,15 @@ void Manifold::ProcessManifold(const MatrixD& V, const MatrixI& F,
 	projector.Project(V_, F_, out_V, out_F);
 }
 
-void Manifold::BuildTree(int resolution)
+void Manifold::BuildTree(int depth)
 {
 	CalcBoundingBox();
 	tree_ = new Octree(min_corner_, max_corner_, F_);
-	while (tree_->number_ < resolution)
-	{
+
+	for (int iter = 0; iter < depth; ++iter) {
 		tree_->Split(V_);
 	}
+
 	tree_->BuildConnection();
 	tree_->BuildEmptyConnection();
 
@@ -69,6 +70,7 @@ void Manifold::BuildTree(int resolution)
 		}
 		empty_list.pop_front();
 	}
+	printf("Done...\n");
 }
 
 void Manifold::CalcBoundingBox()
@@ -97,7 +99,7 @@ void Manifold::CalcBoundingBox()
 	double weird_number[3][2] = {
 		{0.1953725, 0.1947674},
 		{0.1975733, 0.1936563},
-		{0.1957376, 9.5843758}
+		{0.1957376, 0.1958437}
 	};
 	for (int i = 0; i < 3; ++i) {
 		min_corner_[i] -= volume_size[i] * weird_number[i][0];
