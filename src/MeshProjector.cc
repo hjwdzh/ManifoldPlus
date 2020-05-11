@@ -290,6 +290,7 @@ void MeshProjector::IterativeOptimize(FT len, bool initialized) {
 		igl::per_face_normals(out_V_, out_F_, out_FN_);
 		active_vertices_.resize(num_V_);
 		active_vertices_temp_.resize(num_V_);
+		sharp_vertices_.resize(num_V_, 0);
 		for (int i = 0; i < num_V_; ++i) {
 			active_vertices_[i] = i;
 		}
@@ -308,6 +309,7 @@ void MeshProjector::IterativeOptimize(FT len, bool initialized) {
 			}
 		}
 		*/
+		printf("Iter %d: %d\n", iter, num_active_);
 		for (int i = 0; i < num_active_; ++i) {
 			int vid = active_vertices_[i];
 			indices_[i] = std::make_pair(sqrD_[vid], vid);
@@ -354,9 +356,16 @@ void MeshProjector::IterativeOptimize(FT len, bool initialized) {
 			tree_.squared_distance(V_,F_,P,sqrD,I,targetP);
 
 			for (int i = 0; i < num_active_temp; ++i) {
-				target_V_.row(active_vertices_temp_[i]) = targetP.row(i);
-				sqrD_[active_vertices_temp_[i]] = sqrD[i];
-				I_[active_vertices_temp_[i]] = I[i];
+				// update nearest neighbor
+				int vid = active_vertices_temp_[i];
+				if (sharp_vertices_[vid] == 0) {
+					target_V_.row(vid) = targetP.row(i);
+					sqrD_[vid] = sqrD[i];
+					I_[vid] = I[i];
+				} else {
+					sqrD_[vid] = (target_V_.row(vid)
+						- out_V_.row(vid)).squaredNorm();					
+				}
 			}
 		}
 
@@ -438,7 +447,7 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 	}
 	
 	auto AddVertex = [&](const Vector3& p, const Vector3& n,
-		const Vector3& tar_p, const FT& sqr_dis, int face_index) {
+		const Vector3& tar_p, const FT& sqr_dis, int face_index, int sharp) {
 		if (num_V_ >= out_V_.rows()) {
 			out_V_.conservativeResize(out_V_.rows() * 2, 3);
 			out_N_.conservativeResize(out_N_.rows() * 2, 3);
@@ -448,12 +457,14 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 			indices_.resize(indices_.size() * 2);
 			active_vertices_.resize(active_vertices_.size() * 2);
 			active_vertices_temp_.resize(active_vertices_temp_.size() * 2);
+			sharp_vertices_.resize(sharp_vertices_.size() * 2);
 		}
 		out_V_.row(num_V_) = p;
 		out_N_.row(num_V_) = n;
 		target_V_.row(num_V_) = tar_p;
 		sqrD_[num_V_] = sqr_dis;
 		I_[num_V_] = face_index;
+		sharp_vertices_[num_V_] = sharp;
 		num_V_ += 1;
 	};
 
@@ -467,9 +478,13 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 		num_F_ += 1;
 	};
 
+	MatrixD origin_FN;
+	igl::per_face_normals(V_, F_, origin_FN);	
+
 	for (int iter = 0; iter < 4; ++iter) {
 		// Collect dedges to split
 		MatrixD P(candidates.size(), 3);
+		std::vector<int> sharp(candidates.size(), 0);
 		MatrixD targetP;
 
 		for (int i = 0; i < candidates.size(); ++i) {
@@ -483,6 +498,36 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 		VectorXi I;
 		VectorX sqrD;
 		tree_.squared_distance(V_,F_,P,sqrD,I,targetP);
+
+		for (int i = 0; i < candidates.size(); ++i) {
+			if (sqrt(sqrD[i]) <= len * ratio)
+				continue;
+
+			int deid = candidates[i];
+			int v0 = out_F_(deid / 3, deid % 3);
+			int v1 = out_F_(deid / 3, (deid + 1) % 3);
+
+			int src_f0 = I_[v0];
+			int src_f1 = I_[v1];
+
+			Vector3 p0 = V_.row(F_(src_f0, 0));
+			Vector3 n0 = origin_FN.row(src_f0);
+
+			Vector3 p1 = V_.row(F_(src_f1, 0));
+			Vector3 n1 = origin_FN.row(src_f1);
+
+			Vector3 o, t;
+			if (!PlaneIntersect(p0, n0, p1, n1, &o, &t)) {
+				continue;
+			}
+
+			Vector3 np = P.row(i);
+			Vector3 ntarget1 = (np - o).dot(t) * t + o;
+			if ((np - ntarget1).norm() < 3.0 * sqrt(sqrD[i])) {
+				targetP.row(i) = ntarget1;
+				sharp[i] = 1;
+			}
+		}
 		int top = 0;
 		double max_dis = 0;
 		for (int i = 0; i < sqrD.size(); ++i) {
@@ -492,6 +537,7 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 				targetP.row(top) = targetP.row(i);
 				sqrD[top] = sqrD[i];
 				I[top] = I[i];
+				sharp[top] = sharp[i];
 				candidates[top++] = candidates[i];
 			}
 			if (dis > max_dis)
@@ -520,7 +566,8 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 			}
 
 			int v0 = out_F_(deid / 3, deid % 3);
-			AddVertex(P.row(i), out_N_.row(v0), targetP.row(i), sqrD[i], I[i]);
+			AddVertex(P.row(i), out_N_.row(v0), targetP.row(i),
+				sqrD[i], I[i], sharp[i]);
 		}
 
 		// insert faces
