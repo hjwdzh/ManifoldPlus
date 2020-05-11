@@ -15,7 +15,7 @@ public:
 	void UpdateFaceNormal(int i);
 	void UpdateVertexNormal(int i, int conservative);
 	void UpdateVertexNormals(int conservative);
-	void IterativeOptimize(FT len);
+	void IterativeOptimize(FT len, bool initialized = false);
 	void AdaptiveRefine(FT len, FT ratio = 0.1);
 	void Project(const MatrixD& V, const MatrixI& F,
 		MatrixD* out_V, MatrixI* out_F);
@@ -42,5 +42,9 @@ private:
 	std::vector<Vector3> sharp_positions_;
 
 	int num_V_, num_F_;
+
+	std::vector<int> active_vertices_, active_vertices_temp_;
+	std::vector<std::pair<FT, int> > indices_;
+	int num_active_;
 };
 #endif

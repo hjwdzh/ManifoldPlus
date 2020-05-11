@@ -46,7 +46,7 @@ void MeshProjector::ComputeHalfEdge()
 			}
 		}
 	}
-//#ifdef DEBUG_
+#ifdef DEBUG_
 	for (int i = 0; i < num_V_; ++i) {
 		if (V2E_[i] == -1) {
 			printf("independent vertex! %d\n", i);
@@ -63,7 +63,7 @@ void MeshProjector::ComputeHalfEdge()
 			exit(0);
 		}
 	}
-//#endif
+#endif
 }
 
 void MeshProjector::SplitVertices() {
@@ -115,6 +115,7 @@ void MeshProjector::SplitVertices() {
 	for (auto& p : insert_vertex_info) {
 		out_V_.row(p.first) = out_V_.row(p.second);
 	}
+	num_V_ = num_vertices;
 }
 
 void MeshProjector::ComputeIndependentSet() {
@@ -168,9 +169,8 @@ void MeshProjector::Project(const MatrixD& V, const MatrixI& F,
 	SplitVertices();
 	ComputeHalfEdge();
 	ComputeIndependentSet();
-	IterativeOptimize(len);
-	exit(0);
-	AdaptiveRefine(len);
+	IterativeOptimize(len, false);
+	AdaptiveRefine(len, 1e-3);
 
 	out_V->conservativeResize(num_V_, 3);
 	out_F->conservativeResize(num_F_, 3);
@@ -250,7 +250,7 @@ void MeshProjector::UpdateVertexNormal(int i, int conservative) {
 
 void MeshProjector::UpdateVertexNormals(int conservative)
 {
-	if (out_N_.rows() != num_V_)
+	if (out_N_.rows() < num_V_)
 		out_N_.resize(num_V_, 3);
 	for (int i = 0; i < num_V_; ++i) {
 		UpdateVertexNormal(i, conservative);
@@ -282,20 +282,21 @@ int MeshProjector::BoundaryCheck() {
 	return inconsistent;
 }
 
-void MeshProjector::IterativeOptimize(FT len) {
-	UpdateVertexNormals(1);
-	std::vector<std::pair<FT, int> > indices(num_V_);
-
-	UpdateNearestDistance();
-	igl::per_face_normals(out_V_, out_F_, out_FN_);
-	int iter = 0;
-	std::vector<int> active_vertices(num_V_, 0);
-	std::vector<int> active_vertices_temp(num_V_);
-	for (int i = 0; i < num_V_; ++i) {
-		active_vertices[i] = i;
+void MeshProjector::IterativeOptimize(FT len, bool initialized) {
+	if (!initialized) {
+		indices_.resize(num_V_);
+		UpdateVertexNormals(1);
+		UpdateNearestDistance();
+		igl::per_face_normals(out_V_, out_F_, out_FN_);
+		active_vertices_.resize(num_V_);
+		active_vertices_temp_.resize(num_V_);
+		for (int i = 0; i < num_V_; ++i) {
+			active_vertices_[i] = i;
+		}
+		num_active_ = num_V_;
 	}
-	int num_active = num_V_;
 
+	int iter = 0;
 	while (true) {
 		/*
 		for (int i = 0; i < sharp_vertices_.size(); ++i) {
@@ -307,18 +308,17 @@ void MeshProjector::IterativeOptimize(FT len) {
 			}
 		}
 		*/
-
-		for (int i = 0; i < num_active; ++i) {
-			int vid = active_vertices[i];
-			indices[i] = std::make_pair(sqrD_[vid], vid);
+		for (int i = 0; i < num_active_; ++i) {
+			int vid = active_vertices_[i];
+			indices_[i] = std::make_pair(sqrD_[vid], vid);
 		}
 		bool changed = false;
-		std::sort(indices.begin(), indices.begin() + num_active);
+		std::sort(indices_.begin(), indices_.begin() + num_active_);
 		double max_change = 0;
 		int num_active_temp = 0;
 
-		for (int i = num_active - 1; i >= 0; --i) {
-			int vid = indices[i].second;
+		for (int i = num_active_ - 1; i >= 0; --i) {
+			int vid = indices_[i].second;
 
 			double d0 = (out_V_.row(vid) - target_V_.row(vid)).norm();
 			OptimizePosition(vid, target_V_.row(vid), len);
@@ -337,7 +337,7 @@ void MeshProjector::IterativeOptimize(FT len) {
 					changed = true;
 				if (std::abs(d1 - d0) > std::abs(max_change))
 					max_change = d1 - d0;
-				active_vertices_temp[num_active_temp++] = vid;
+				active_vertices_temp_[num_active_temp++] = vid;
 			}
 		}
 
@@ -346,27 +346,23 @@ void MeshProjector::IterativeOptimize(FT len) {
 		else {
 			MatrixD P(num_active_temp, 3);
 			for (int i = 0; i < num_active_temp; ++i) {
-				P.row(i) = out_V_.row(active_vertices_temp[i]);
+				P.row(i) = out_V_.row(active_vertices_temp_[i]);
 			}
 			MatrixD targetP;
 			VectorX sqrD;
 			VectorXi I;
 			tree_.squared_distance(V_,F_,P,sqrD,I,targetP);
 
-			double dis = 0;
 			for (int i = 0; i < num_active_temp; ++i) {
-				target_V_.row(active_vertices_temp[i]) = targetP.row(i);
-				double m = std::abs(sqrD[i] - sqrD_[active_vertices_temp[i]]);
-				if (m > dis)
-					dis = m;
-				sqrD_[active_vertices_temp[i]] = sqrD[i];
+				target_V_.row(active_vertices_temp_[i]) = targetP.row(i);
+				sqrD_[active_vertices_temp_[i]] = sqrD[i];
+				I_[active_vertices_temp_[i]] = I[i];
 			}
 		}
 
-
 		std::unordered_set<int> novel_activate;
 		for (int i = 0; i < num_active_temp; ++i) {
-			int p = active_vertices_temp[i];
+			int p = active_vertices_temp_[i];
 			novel_activate.insert(p);
 			int deid = V2E_[p];
 			int deid0 = deid;
@@ -376,9 +372,9 @@ void MeshProjector::IterativeOptimize(FT len) {
 			} while (deid0 != deid);
 		}
 
-		num_active = 0;
+		num_active_ = 0;
 		for (auto& p : novel_activate)
-			active_vertices[num_active++] = p;
+			active_vertices_[num_active_++] = p;
 		/*
 		if (iter == 2)
 			PreserveSharpFeatures(len);
@@ -434,23 +430,30 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 			candidates.push_back(i);
 	}
 
-	printf("Start distance!\n");
-	UpdateNearestDistance();
 	double max_dis = 0;
-	for (int i = 0; i < sqrD_.size(); ++i) {
+	for (int i = 0; i < num_V_; ++i) {
 		double dis = sqrt(sqrD_[i]);
 		if (dis > max_dis)
 			max_dis = dis;
 	}
-	printf("Max distance %lf\n", max_dis);
 	
-	auto AddVertex = [&](const Vector3& p, const Vector3& n) {
+	auto AddVertex = [&](const Vector3& p, const Vector3& n,
+		const Vector3& tar_p, const FT& sqr_dis, int face_index) {
 		if (num_V_ >= out_V_.rows()) {
 			out_V_.conservativeResize(out_V_.rows() * 2, 3);
-			out_N_.conservativeResize(out_N_.rows() * 2, 3);			
+			out_N_.conservativeResize(out_N_.rows() * 2, 3);
+			target_V_.conservativeResize(target_V_.rows() * 2, 3);
+			sqrD_.conservativeResize(sqrD_.rows() * 2);
+			I_.conservativeResize(I_.size() * 2);
+			indices_.resize(indices_.size() * 2);
+			active_vertices_.resize(active_vertices_.size() * 2);
+			active_vertices_temp_.resize(active_vertices_temp_.size() * 2);
 		}
 		out_V_.row(num_V_) = p;
 		out_N_.row(num_V_) = n;
+		target_V_.row(num_V_) = tar_p;
+		sqrD_[num_V_] = sqr_dis;
+		I_[num_V_] = face_index;
 		num_V_ += 1;
 	};
 
@@ -465,27 +468,34 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 	};
 
 	for (int iter = 0; iter < 4; ++iter) {
-		printf("Boundary iter %d with candidates %d\n", iter, candidates.size());
-		printf("Step1...\n");
 		// Collect dedges to split
 		MatrixD P(candidates.size(), 3);
 		MatrixD targetP;
+
 		for (int i = 0; i < candidates.size(); ++i) {
 			int deid = candidates[i];
 			int v0 = out_F_(deid / 3, deid % 3);
 			int v1 = out_F_(deid / 3, (deid + 1) % 3);
+
 			P.row(i) = (out_V_.row(v0) + out_V_.row(v1)) * 0.5;
 		}
-		igl::point_mesh_squared_distance(P, V_, F_, sqrD_, I_, targetP);
+		//igl::point_mesh_squared_distance(P, V_, F_, sqrD_, I_, targetP);
+		VectorXi I;
+		VectorX sqrD;
+		tree_.squared_distance(V_,F_,P,sqrD,I,targetP);
 		int top = 0;
-		for (int i = 0; i < sqrD_.size(); ++i) {
-			double dis = sqrt(sqrD_[i]);
+		double max_dis = 0;
+		for (int i = 0; i < sqrD.size(); ++i) {
+			double dis = sqrt(sqrD[i]);
 			if (dis > len * ratio) {
 				P.row(top) = P.row(i);
 				targetP.row(top) = targetP.row(i);
-				sqrD_[top] = sqrD_[i];
+				sqrD[top] = sqrD[i];
+				I[top] = I[i];
 				candidates[top++] = candidates[i];
 			}
+			if (dis > max_dis)
+				max_dis = dis;
 		}
 		candidates.resize(top);
 
@@ -493,11 +503,9 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 		int prev_face_num = num_F_;
 
 		// insert vertices
-		printf("Step2...\n");
 		std::map<int, Vector3i > face_splits;
 		for (int i = 0; i < top; ++i) {
 			int deid = candidates[i];
-
 			for (int j = 0; j < 2; ++j) {
 				int f = deid / 3;
 				auto it = face_splits.find(f);
@@ -506,25 +514,20 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 					v[deid % 3] = num_V_;
 					face_splits[f] = v;
 				} else {
-					if (it->second[deid % 3] != -1) {
-						printf("OMG!\n");
-						exit(0);
-					}
 					it->second[deid % 3] = num_V_;
 				}
 				deid = E2E_[deid];
 			}
 
 			int v0 = out_F_(deid / 3, deid % 3);
-			AddVertex(P.row(i), out_N_.row(v0));
+			AddVertex(P.row(i), out_N_.row(v0), targetP.row(i), sqrD[i], I[i]);
 		}
 
 		// insert faces
-		printf("Step3...\n");
 		std::map<std::pair<int, int>, int> dedges;
 		for (auto& info : face_splits) {
 			int f = info.first;
-			auto fn = out_FN_.row(f);
+			Vector3 fn = out_FN_.row(f);
 			auto splits = info.second;
 			int count = 0;
 			for (int j = 0; j < 3; ++j) {
@@ -535,10 +538,13 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 				int v0 = out_F_(f, 0);
 				int v1 = out_F_(f, 1);
 				int v2 = out_F_(f, 2);
+
 				int nv0 = splits[0];
 				int nv1 = splits[1];
 				int nv2 = splits[2];
+
 				out_F_.row(f) = Vector3i(v0, nv0, nv2);
+
 				AddFace(Vector3i(nv0, nv1, nv2), fn);
 				AddFace(Vector3i(nv0, v1, nv1), fn);
 				AddFace(Vector3i(nv2, nv1, v2), fn);
@@ -575,14 +581,10 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 				int nv0 = splits[j];
 				out_F_.row(f) = Vector3i(v0, nv0, v2);
 				AddFace(Vector3i(nv0, v1, v2), fn);
-			} else {
-				printf("Wrong splits!\n");
-				exit(0);
 			}
 		}
 
 		// insert E2E and V2E
-		printf("Step4...\n");
 		std::vector<int> update_face_set;
 		std::set<int> update_vertex_set;
 		update_face_set.reserve(face_splits.size() + num_F_ - prev_face_num);
@@ -632,7 +634,8 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 			auto f = out_F_.row(info.first);
 			for (int i = 0; i < 3; ++i) {
 				int v0 = f[i];
-				if (v0 >= prev_vertex_num) {
+				int v1 = f[(i + 1) % 3];
+				if (v0 >= prev_vertex_num || v1 >= prev_vertex_num) {
 					int dedge = info.first * 3 + i;
 					if (E2E_[dedge] > dedge) {
 						candidates.push_back(dedge);
@@ -644,7 +647,8 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 			auto f = out_F_.row(k);
 			for (int i = 0; i < 3; ++i) {
 				int v0 = f[i];
-				if (v0 >= prev_vertex_num) {
+				int v1 = f[(i + 1) % 3];
+				if (v0 >= prev_vertex_num || v1 >= prev_vertex_num) {
 					int dedge = k * 3 + i;
 					if (E2E_[dedge] > dedge) {
 						candidates.push_back(dedge);
@@ -653,53 +657,11 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 			}
 		}
 
-
-		// Project inserted vertices and update 
-		for (int i = prev_vertex_num; i < num_V_; ++ i) {
-			auto vn = out_N_.row(i);
-			UpdateVertexNormal(i, 0);
-			OptimizeNormal(i, vn, out_N_.row(i));
+		num_active_ = 0;
+		for (int i = prev_vertex_num; i < num_V_; ++i) {
+			active_vertices_[num_active_++] = i;
 		}
-		for (int inner_iter = 0; inner_iter < 3; ++inner_iter) {
-			// update vertex positions
-			printf("Vertex position...\n");
-			std::vector<std::pair<double, int> > indices(top);
-			for (int i = 0; i < indices.size(); ++i) {
-				indices[i] = std::make_pair(sqrD_[i], i + prev_vertex_num);
-			}
-			std::sort(indices.rbegin(), indices.rend());
-			for (auto& ind : indices) {
-				int i = ind.second;
-				OptimizePosition(i, targetP.row(i - prev_vertex_num), len);
-			}
-			// update face normals
-			printf("Face normal...\n");
-			for (auto& f : update_face_set) {
-				int v0 = out_F_(f, 0);
-				int v1 = out_F_(f, 1);
-				int v2 = out_F_(f, 2);
-				Vector3 d0 = out_V_.row(v1) - out_V_.row(v0);
-				Vector3 d1 = out_V_.row(v2) - out_V_.row(v0);
-				Vector3 n = d0.cross(d1);
-				n.normalize();
-				out_FN_.row(f) = n;
-			}
-			// update internal vertex normals
-			printf("Vertex normal...\n");
-			for (auto& i : update_vertex_set) {
-				auto vn = out_N_.row(i);
-				UpdateVertexNormal(i, 0);
-				OptimizeNormal(i, vn, out_N_.row(i));				
-			}
-			// update new vertex normals
-			for (int i = prev_vertex_num; i < num_V_; ++ i) {
-				auto vn = out_N_.row(i);
-				UpdateVertexNormal(i, 0);
-				OptimizeNormal(i, vn, out_N_.row(i));
-			}			
-		}
-		printf("Step6...\n");
-		break;
+		IterativeOptimize(len, true);
 	}
 }
 
