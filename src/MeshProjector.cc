@@ -343,7 +343,7 @@ void MeshProjector::IterativeOptimize(FT len, bool initialized) {
 		num_active_ = num_V_;
 	}
 
-	Sanity("Iterative...");
+	//Sanity("Iterative...");
 	int iter = 0;
 	while (true) {
 		/*
@@ -356,7 +356,7 @@ void MeshProjector::IterativeOptimize(FT len, bool initialized) {
 			}
 		}
 		*/
-		printf("Iter %d: %d\n", iter, num_active_);
+		//printf("Iter %d: %d\n", iter, num_active_);
 		for (int i = 0; i < num_active_; ++i) {
 			int vid = active_vertices_[i];
 			indices_[i] = std::make_pair(sqrD_[vid], vid);
@@ -574,7 +574,7 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 			EdgeFlipRefine(candidates);
 		}
 
-		printf("candidates %d\n", candidates.size());
+		//printf("candidates %d\n", candidates.size());
 		for (int i = 0; i < candidates.size(); ++i) {
 			if (sqrt(sqrD[i]) <= len * ratio)
 				continue;
@@ -609,7 +609,7 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 		int prev_vertex_num = num_V_;
 		int prev_face_num = num_F_;
 
-		Sanity("Before some operation...\n");
+		//Sanity("Before some operation...\n");
 
 		// insert vertices
 		std::map<int, Vector3i > face_splits;
@@ -744,7 +744,7 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 			E2E_[deid] = rdeid;
 			E2E_[rdeid] = deid;
 		}
-		Sanity("After some operation...\n");
+		//Sanity("After some operation...\n");
 
 		num_active_ = 0;
 		for (int i = prev_vertex_num; i < num_V_; ++i) {
@@ -823,7 +823,7 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 		os.close();
 		*/
 	}
-	EdgeFlipRefine(candidates);
+	//EdgeFlipRefine(candidates);
 }
 
 bool MeshProjector::IsNeighbor(int v1, int v2) {
@@ -1006,10 +1006,9 @@ void MeshProjector::EdgeFlipRefine(std::vector<int>& candidates) {
 			candidates[top++] = deid;
 		}
 	}
-	printf("%d to %d\n", candidates.size(), top);
+	//printf("%d to %d\n", candidates.size(), top);
 	candidates.resize(top);
-	Sanity("EdgeFlip");
-	printf("Done...\n");
+	//Sanity("EdgeFlip");
 }
 
 void MeshProjector::OptimizePosition(int v, const Vector3& p, FT len, bool debug) {
@@ -1137,8 +1136,6 @@ void MeshProjector::OptimizePosition(int v, const Vector3& p, FT len, bool debug
 #endif
 
 		FT max_step = tar_step;
-		if (debug)
-			printf("Max step before %lf %lf\n", max_step);
 		int constraint_id = -1;
 		for (int j = 0; j < A.size(); ++j) {
 			if (attached_dimensions[j])
@@ -1151,12 +1148,6 @@ void MeshProjector::OptimizePosition(int v, const Vector3& p, FT len, bool debug
 				constraint_id = j;
 				max_step = step;
 			}
-		}
-		if (debug)
-			printf("Max step after %lf\n", max_step);
-
-		if (debug) {
-			printf("Target dir <%f %f %f>\n", tar_dir[0], tar_dir[1], tar_dir[2]);
 		}
 
 		if (max_step < 1e-6)
