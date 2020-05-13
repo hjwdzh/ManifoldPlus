@@ -17,6 +17,7 @@ public:
 	void UpdateVertexNormals(int conservative);
 	void IterativeOptimize(FT len, bool initialized = false);
 	void AdaptiveRefine(FT len, FT ratio = 0.1);
+	void EdgeFlipRefine(std::vector<int>& candidates);
 	void Project(const MatrixD& V, const MatrixI& F,
 		MatrixD* out_V, MatrixI* out_F);
 	void UpdateNearestDistance();
@@ -27,6 +28,9 @@ public:
 	void OptimizeNormals();
 	void PreserveSharpFeatures(FT len_thres);
 	void Highlight(int id, FT len);
+	void Sanity(const char* log);
+
+	bool IsNeighbor(int v1, int v2);
 private:
 	std::vector<std::vector<int> > vertex_groups_;
 

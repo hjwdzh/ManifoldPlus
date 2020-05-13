@@ -4,6 +4,7 @@
 #include <fstream>
 #include <map>
 #include <set>
+#include <unordered_map>
 #include <unordered_set>
 
 #include <Eigen/Dense>
@@ -21,8 +22,8 @@ MeshProjector::MeshProjector()
 
 void MeshProjector::ComputeHalfEdge()
 {
-	V2E_.resize(num_V_);
-	E2E_.resize(num_F_ * 3);
+	V2E_.resize(out_V_.rows());
+	E2E_.resize(out_F_.rows() * 3);
 
 	for (int i = 0; i < num_V_; ++i)
 		V2E_[i] = -1;
@@ -66,6 +67,42 @@ void MeshProjector::ComputeHalfEdge()
 #endif
 }
 
+void MeshProjector::Sanity(const char* log) {
+	for (int i = 0; i < num_F_ * 3; ++i) {
+		int deid = i;
+		int rdeid = E2E_[deid];
+		if (rdeid == -1)
+			continue;
+		int v0 = out_F_(deid / 3, deid % 3);
+		int v1 = out_F_(deid / 3, (deid + 1) % 3);
+		int v2 = out_F_(rdeid / 3, rdeid % 3);
+		int v3 = out_F_(rdeid / 3, (rdeid + 1) % 3);
+
+		if (E2E_[E2E_[deid]] != deid) {
+			printf("%s\n", log);
+			printf("E2E Reverse! %d %d %d %d\n", i / 3, i % 3,
+				rdeid / 3, rdeid % 3);
+			exit(0);
+		}
+		if (v0 != v3 || v1 != v2) {
+			printf("%s\n", log);
+			printf("E2E Conflict! %d %d %d %d\n", i / 3, i % 3,
+				rdeid / 3, rdeid % 3);
+			exit(0);
+		}
+	}
+	for (int i = 0; i < num_V_; ++i) {
+		int v = V2E_[i];
+		if (v == -1)
+			continue;
+		if (out_F_(v / 3, v % 3) != i) {
+			printf("%s\n", log);
+			printf("Wrong V2E! %d %d %d\n", i, out_F_(v / 3, v % 3), num_V_);
+			exit(0);
+		}
+	}
+}
+
 void MeshProjector::SplitVertices() {
 	std::vector<std::unordered_set<int> > vlinks(num_V_);
 	for (int i = 0; i < num_F_; ++i) {
@@ -78,6 +115,8 @@ void MeshProjector::SplitVertices() {
 	std::vector<std::pair<int, int> > insert_vertex_info;
 	int num_vertices = num_V_;
 	for (int i = 0; i < num_V_; ++i) {
+		if (V2E_[i] == -1)
+			continue;
 		int deid = V2E_[i];
 		int deid0 = deid;
 		int vertex_count = 0;
@@ -127,6 +166,8 @@ void MeshProjector::ComputeIndependentSet() {
 			vertex_groups_.push_back(std::vector<int>());
 			auto& group = vertex_groups_.back();
 			if (vertex_colors[i] != -1)
+				continue;
+			if (V2E_[i] == -1)
 				continue;
 			int deid = V2E_[i];
 			int deid0 = deid;
@@ -190,6 +231,8 @@ void MeshProjector::UpdateNearestDistance()
 
 void MeshProjector::UpdateFaceNormal(int i)
 {
+	if (V2E_[i] == -1)
+		return;
 	int deid = V2E_[i];
 	int deid0 = deid;
 	do {
@@ -210,6 +253,9 @@ void MeshProjector::UpdateFaceNormal(int i)
 }
 
 void MeshProjector::UpdateVertexNormal(int i, int conservative) {
+	if (V2E_[i] == -1) {
+		return;
+	}
 	int deid = V2E_[i];
 	int deid0 = deid;
 	Vector3 n(0,0,0);
@@ -297,6 +343,7 @@ void MeshProjector::IterativeOptimize(FT len, bool initialized) {
 		num_active_ = num_V_;
 	}
 
+	Sanity("Iterative...");
 	int iter = 0;
 	while (true) {
 		/*
@@ -321,6 +368,8 @@ void MeshProjector::IterativeOptimize(FT len, bool initialized) {
 
 		for (int i = num_active_ - 1; i >= 0; --i) {
 			int vid = indices_[i].second;
+			if (V2E_[vid] == -1)
+				continue;
 
 			double d0 = (out_V_.row(vid) - target_V_.row(vid)).norm();
 			OptimizePosition(vid, target_V_.row(vid), len);
@@ -373,6 +422,8 @@ void MeshProjector::IterativeOptimize(FT len, bool initialized) {
 		for (int i = 0; i < num_active_temp; ++i) {
 			int p = active_vertices_temp_[i];
 			novel_activate.insert(p);
+			if (V2E_[p] == -1)
+				continue;
 			int deid = V2E_[p];
 			int deid0 = deid;
 			do {
@@ -481,24 +532,49 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 	MatrixD origin_FN;
 	igl::per_face_normals(V_, F_, origin_FN);	
 
-	for (int iter = 0; iter < 4; ++iter) {
+	for (int iter = 0; iter < 3; ++iter) {
 		// Collect dedges to split
-		MatrixD P(candidates.size(), 3);
-		std::vector<int> sharp(candidates.size(), 0);
+		MatrixD P;
 		MatrixD targetP;
-
-		for (int i = 0; i < candidates.size(); ++i) {
-			int deid = candidates[i];
-			int v0 = out_F_(deid / 3, deid % 3);
-			int v1 = out_F_(deid / 3, (deid + 1) % 3);
-
-			P.row(i) = (out_V_.row(v0) + out_V_.row(v1)) * 0.5;
-		}
-		//igl::point_mesh_squared_distance(P, V_, F_, sqrD_, I_, targetP);
 		VectorXi I;
 		VectorX sqrD;
-		tree_.squared_distance(V_,F_,P,sqrD,I,targetP);
+		std::vector<int> sharp;
+		int top;
 
+		for (int repeat = 0; repeat < 2; ++repeat) {
+			P.resize(candidates.size(), 3);
+			sharp.resize(candidates.size(), 0);
+			for (int i = 0; i < candidates.size(); ++i) {
+				int deid = candidates[i];
+				int v0 = out_F_(deid / 3, deid % 3);
+				int v1 = out_F_(deid / 3, (deid + 1) % 3);
+
+				P.row(i) = (out_V_.row(v0) + out_V_.row(v1)) * 0.5;
+			}
+
+			//igl::point_mesh_squared_distance(P, V_, F_, sqrD_, I_, targetP);
+			tree_.squared_distance(V_,F_,P,sqrD,I,targetP);
+
+			top = 0;
+			for (int i = 0; i < sqrD.size(); ++i) {
+				double dis = sqrt(sqrD[i]);
+				if (dis > len * ratio) {
+					P.row(top) = P.row(i);
+					targetP.row(top) = targetP.row(i);
+					sqrD[top] = sqrD[i];
+					I[top] = I[i];
+					sharp[top] = sharp[i];
+					candidates[top++] = candidates[i];
+				}
+			}
+			candidates.resize(top);
+			if (repeat == 1)
+				break;
+			
+			EdgeFlipRefine(candidates);
+		}
+
+		printf("candidates %d\n", candidates.size());
 		for (int i = 0; i < candidates.size(); ++i) {
 			if (sqrt(sqrD[i]) <= len * ratio)
 				continue;
@@ -525,28 +601,15 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 			Vector3 ntarget1 = (np - o).dot(t) * t + o;
 			if ((np - ntarget1).norm() < 3.0 * sqrt(sqrD[i])) {
 				targetP.row(i) = ntarget1;
+				sqrD[i] = (np - ntarget1).squaredNorm();
 				sharp[i] = 1;
 			}
 		}
-		int top = 0;
-		double max_dis = 0;
-		for (int i = 0; i < sqrD.size(); ++i) {
-			double dis = sqrt(sqrD[i]);
-			if (dis > len * ratio) {
-				P.row(top) = P.row(i);
-				targetP.row(top) = targetP.row(i);
-				sqrD[top] = sqrD[i];
-				I[top] = I[i];
-				sharp[top] = sharp[i];
-				candidates[top++] = candidates[i];
-			}
-			if (dis > max_dis)
-				max_dis = dis;
-		}
-		candidates.resize(top);
 
 		int prev_vertex_num = num_V_;
 		int prev_face_num = num_F_;
+
+		Sanity("Before some operation...\n");
 
 		// insert vertices
 		std::map<int, Vector3i > face_splits;
@@ -576,6 +639,7 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 			int f = info.first;
 			Vector3 fn = out_FN_.row(f);
 			auto splits = info.second;
+
 			int count = 0;
 			for (int j = 0; j < 3; ++j) {
 				if (splits[j] >= 0)
@@ -609,7 +673,7 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 
 				dedges[std::make_pair(v1, v0)] = E2E_[f * 3 + j];
 
-				out_F_.row(f) = Vector3i(v0, v1, nv0);
+				out_F_(f, (j + 2) % 3) = nv0;
 				AddFace(Vector3i(v0, nv0, nv1), fn);
 				AddFace(Vector3i(nv1, nv0, v2), fn);
 			}
@@ -626,8 +690,14 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 				dedges[std::make_pair(v0, v2)] = E2E_[f * 3 + (j + 2) % 3];
 
 				int nv0 = splits[j];
-				out_F_.row(f) = Vector3i(v0, nv0, v2);
+				out_F_(f, (j + 1) % 3) = nv0;
 				AddFace(Vector3i(nv0, v1, v2), fn);
+				if (dedges.count(std::make_pair(v1, v2))) {
+					dedges[std::make_pair(v1, v2)] = (num_F_ - 1) * 3 + 1;
+				}
+				if (E2E_[f * 3 + (j + 1) % 3] < prev_face_num * 3) {
+					E2E_[E2E_[f * 3 + (j + 1) % 3]] = (num_F_ - 1) * 3 + 1;
+				}
 			}
 		}
 
@@ -674,14 +744,31 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 			E2E_[deid] = rdeid;
 			E2E_[rdeid] = deid;
 		}
+		Sanity("After some operation...\n");
+
+		num_active_ = 0;
+		for (int i = prev_vertex_num; i < num_V_; ++i) {
+			active_vertices_[num_active_++] = i;
+		}
+		IterativeOptimize(len, true);
 
 		// update candidates
 		candidates.clear();
 		for (auto& info : face_splits) {
 			auto f = out_F_.row(info.first);
+			int masks[3] = {0,0,0};
+			for (int i = 0; i < 3; ++i) {
+				int v0 = f[i];
+				FT dis = (out_V_.row(v0) - target_V_.row(v0)).norm();
+				if (v0 >= prev_vertex_num && dis > len * ratio) {
+					masks[i] = 1;
+				}
+			}
 			for (int i = 0; i < 3; ++i) {
 				int v0 = f[i];
 				int v1 = f[(i + 1) % 3];
+				if (masks[i] == 1 || masks[(i + 1) % 3] == 1)
+					continue;
 				if (v0 >= prev_vertex_num || v1 >= prev_vertex_num) {
 					int dedge = info.first * 3 + i;
 					if (E2E_[dedge] > dedge) {
@@ -692,9 +779,19 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 		}
 		for (int k = prev_face_num; k < num_F_; ++k) {
 			auto f = out_F_.row(k);
+			int masks[3] = {0, 0, 0};
+			for (int i = 0; i < 3; ++i) {
+				int v0 = f[i];
+				FT dis = (out_V_.row(v0) - target_V_.row(v0)).norm();
+				if (v0 >= prev_vertex_num && dis > len * ratio) {
+					masks[i] = 1;
+				}
+			}
 			for (int i = 0; i < 3; ++i) {
 				int v0 = f[i];
 				int v1 = f[(i + 1) % 3];
+				if (masks[i] == 1 || masks[(i + 1) % 3] == 1)
+					continue;
 				if (v0 >= prev_vertex_num || v1 >= prev_vertex_num) {
 					int dedge = k * 3 + i;
 					if (E2E_[dedge] > dedge) {
@@ -704,12 +801,215 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 			}
 		}
 
-		num_active_ = 0;
+		/*
+		char buffer[1024];
+		sprintf(buffer, "%05d-pts.obj", iter);
+		std::ofstream os(buffer);
 		for (int i = prev_vertex_num; i < num_V_; ++i) {
-			active_vertices_[num_active_++] = i;
+			Vector3 v = out_V_.row(i);
+			os << "v " << v[0] << " " << v[1] << " " << v[2] << "\n";
 		}
-		IterativeOptimize(len, true);
+		os.close();
+		sprintf(buffer, "%05d-tri.obj", iter);
+		os.open(buffer);
+		for (int i = 0; i < num_V_; ++i) {
+			Vector3 v = out_V_.row(i);
+			os << "v " << v[0] << " " << v[1] << " " << v[2] << "\n";			
+		}
+		for (int i = 0; i < num_F_; ++i) {
+			Vector3i f = out_F_.row(i);
+			os << "f " << f[0] + 1 << " " << f[1] + 1 << " " << f[2] + 1 << "\n";
+		}
+		os.close();
+		*/
 	}
+	EdgeFlipRefine(candidates);
+}
+
+bool MeshProjector::IsNeighbor(int v1, int v2) {
+	int deid = V2E_[v1];
+	int deid0 = deid;
+	do {
+		if (out_F_(deid / 3, (deid + 1) % 3) == v2)
+			return true;
+		deid = E2E_[deid / 3 * 3 + (deid + 2) % 3];
+	} while (deid != deid0);
+	return false;
+}
+
+void MeshProjector::EdgeFlipRefine(std::vector<int>& candidates) {
+	std::unordered_map<int, int> dedge_to_index;
+	for (int i = 0; i < candidates.size(); ++i) {
+		dedge_to_index[candidates[i]] = i;
+	}
+
+	auto TestAndSwitch = [&](int dedge) {
+		auto it = dedge_to_index.find(dedge);
+		if (it != dedge_to_index.end()) {
+			int index = it->second;
+			dedge_to_index.erase(dedge);
+			if (dedge_to_index.count(E2E_[dedge]) == 0) {
+				dedge_to_index[E2E_[dedge]] = index;
+				candidates[index] = E2E_[dedge];
+			} else {
+				candidates[index] = -1;
+			}
+		}
+	};
+	auto PairDedge = [&](int e1, int e2) {
+		E2E_[e1] = e2;
+		E2E_[e2] = e1;
+	};
+
+	std::unordered_set<int> modified_faces;
+	while (true) {
+		bool update = false;
+		for (int i = 0; i < candidates.size(); ++i) {
+			if (candidates[i] < 0)
+				continue;
+			int deid = candidates[i];
+			int v0 = out_F_(deid / 3, deid % 3);
+			int v1 = out_F_(deid / 3, (deid + 1) % 3);
+			int v2 = out_F_(deid / 3, (deid + 2) % 3);
+			int rdeid = E2E_[deid];
+			int v3 = out_F_(rdeid / 3, (rdeid + 2) % 3);
+			if (IsNeighbor(v2, v3) || v2 == v3)
+				continue;
+			if ((out_V_.row(v0)-out_V_.row(v1)).squaredNorm() >
+				(out_V_.row(v2)-out_V_.row(v3)).squaredNorm()) {
+				dedge_to_index.erase(deid);
+				int e1 = deid;
+				int e1_a = (e1 % 3 == 2) ? e1 - 2 : e1 + 1;
+				int e1_b = (e1 % 3 == 0) ? e1 + 2 : e1 - 1;
+				int e2 = E2E_[deid];
+				int e2_a = (e2 % 3 == 2) ? e2 - 2 : e2 + 1;
+				int e2_b = (e2 % 3 == 0) ? e2 + 2 : e2 - 1;
+				int e1_ar = E2E_[e1_a];
+				int e1_br = E2E_[e1_b];
+				int e2_ar = E2E_[e2_a];
+				int e2_br = E2E_[e2_b];
+				TestAndSwitch(e1_a);
+				TestAndSwitch(e1_b);
+				TestAndSwitch(e2_a);
+				TestAndSwitch(e2_b);
+				int f1 = e1 / 3;
+				int f2 = e2 / 3;
+				Vector3 d1 = out_V_.row(v3) - out_V_.row(v2);
+				Vector3 d2 = out_V_.row(v0) - out_V_.row(v2);
+				Vector3 d3 = out_V_.row(v1) - out_V_.row(v2);
+				Vector3 n1 = d2.cross(d1);
+				Vector3 n2 = d1.cross(d3);
+				if (n1.norm() > 0)
+					n1 = n1 / n1.norm();
+				if (n2.norm() > 0)
+					n2 = n2 / n2.norm();
+				out_F_.row(f1) = Vector3i(v0, v3, v2);
+				out_FN_.row(f1) = n1;
+				out_F_.row(f2) = Vector3i(v2, v3, v1);
+				out_FN_.row(f2) = n2;
+
+				modified_faces.insert(f1);
+				modified_faces.insert(f2);
+
+				V2E_[v0] = f1 * 3;
+				V2E_[v3] = f1 * 3 + 1;
+				V2E_[v2] = f1 * 3 + 2;
+				V2E_[v1] = f2 * 3 + 2;
+
+				PairDedge(e1_ar, f2 * 3 + 2);
+				PairDedge(e2_br, f2 * 3 + 1);
+				PairDedge(f1 * 3 + 1, f2 * 3);
+				PairDedge(e1_br, f1 * 3 + 2);
+				PairDedge(e2_ar, f1 * 3);
+				update = true;
+				
+				dedge_to_index[f1 * 3 + 2] = i;
+				candidates[i] = f1 * 3 + 2;
+			}
+		}
+		if (!update)
+			break;
+	}
+	std::unordered_map<int, int> faces_to_remove;
+	for (auto& f : modified_faces) {
+		int to_modify = -1;
+		for (int j = 0; j < 3; ++j) {
+			int i = f * 3 + j;
+			int v2 = out_F_(i / 3, (i + 2) % 3);
+			int v3 = out_F_(E2E_[i] / 3, (E2E_[i] + 2) % 3);
+			if (v2 == v3) {
+				to_modify = f * 3 + j;
+				break;
+			}
+		}
+		if (to_modify >= 0) {
+			faces_to_remove[to_modify / 3] = to_modify;
+			faces_to_remove[E2E_[to_modify] / 3] = E2E_[to_modify];
+		} else {
+			for (int j = 0; j < 3; ++j) {
+				if (dedge_to_index.count(f * 3 + j) == 0 &&
+					dedge_to_index.count(E2E_[f * 3 + j]) == 0) {
+					dedge_to_index[f * 3 + j] = 1;
+				}
+			}
+		}
+	}
+
+	for (auto& f : faces_to_remove) {
+		int dedge = f.second;
+		if (out_F_(dedge/3, dedge%3) == -1)
+			continue;
+		int e1 = dedge;
+		int e1_a = (e1 % 3 == 2) ? e1 - 2 : e1 + 1;
+		int e1_b = (e1 % 3 == 0) ? e1 + 2 : e1 - 1;
+		int e2 = E2E_[e1];
+		int e2_a = (e2 % 3 == 2) ? e2 - 2 : e2 + 1;
+		int e2_b = (e2 % 3 == 0) ? e2 + 2 : e2 - 1;
+		int e1_ar = E2E_[e1_a];
+		int e1_br = E2E_[e1_b];
+		int e2_ar = E2E_[e2_a];
+		int e2_br = E2E_[e2_b];
+
+		TestAndSwitch(e1_a);
+		TestAndSwitch(e1_b);
+		TestAndSwitch(e2_a);
+		TestAndSwitch(e2_b);
+		PairDedge(e1_ar, e2_br);
+		PairDedge(e1_br, e2_ar);
+		E2E_[e1] = -1;
+		E2E_[e1_a] = -1;
+		E2E_[e1_b] = -1;
+		E2E_[e2] = -1;
+		E2E_[e2_a] = -1;
+		E2E_[e2_b] = -1;
+		int v0 = out_F_(e1 / 3, e1 % 3);
+		int v1 = out_F_(e1 / 3, (e1 + 1) % 3);
+		int v2 = out_F_(e1 / 3, (e1 + 2) % 3);
+		int v3 = out_F_(e2 / 3, (e2 + 2) % 3);
+
+		out_F_.row(e1 / 3) = Vector3i(-1, -1, -1);
+		out_F_.row(e2 / 3) = Vector3i(-1, -1, -1);
+		V2E_[v2] = (out_F_(e1_ar / 3, e1_ar % 3) == -1) ? -1 : e1_ar;
+		V2E_[v0] = (out_F_(e1_br / 3, e1_br % 3) == -1) ? -1 : e1_br;
+		V2E_[v3] = (out_F_(e2_ar / 3, e2_ar % 3) == -1) ? -1 : e2_ar; 
+		V2E_[v1] = (out_F_(e2_br / 3, e2_br % 3) == -1) ? -1 : e2_br;
+	}
+
+	int top = 0;
+	candidates.resize(dedge_to_index.size());
+	for (auto& p : dedge_to_index) {
+		int deid = p.first;
+		if (dedge_to_index.count(E2E_[deid]) && E2E_[deid] < deid)
+			continue;
+		int v0 = out_F_(deid / 3, deid % 3);
+		if (v0 != -1) {
+			candidates[top++] = deid;
+		}
+	}
+	printf("%d to %d\n", candidates.size(), top);
+	candidates.resize(top);
+	Sanity("EdgeFlip");
+	printf("Done...\n");
 }
 
 void MeshProjector::OptimizePosition(int v, const Vector3& p, FT len, bool debug) {
