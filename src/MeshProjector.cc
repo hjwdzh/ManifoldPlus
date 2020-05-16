@@ -1357,9 +1357,6 @@ void MeshProjector::PreserveSharpFeatures(FT len_thres) {
 				fset.insert(face_elements[1].second);
 				fset.erase(face_elements[0].first);
 				fset.erase(face_elements[1].second);
-				if (fset.size() > 1) {
-					printf("...\n");
-				}
 				FT max_len = 1e30;
 				for (auto& p : fset) {
 					Vector3 p2 = V_.row(F_(p, 0));
