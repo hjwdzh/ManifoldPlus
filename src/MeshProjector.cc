@@ -211,16 +211,30 @@ void MeshProjector::Project(const MatrixD& V, const MatrixI& F,
 	ComputeHalfEdge();
 	ComputeIndependentSet();
 	IterativeOptimize(len, false);
+
 	AdaptiveRefine(len, 1e-3);
 
+	std::vector<int> vertex_mapping(num_V_, -1);
 	out_V->conservativeResize(num_V_, 3);
 	out_F->conservativeResize(num_F_, 3);
+	int num_v = 0, num_f = 0;
 	for (int i = 0; i < num_V_; ++i) {
-		out_V->row(i) = out_V_.row(i);
+		if (V2E_[i] > -1) {
+			out_V->row(num_v) = out_V_.row(i);
+			vertex_mapping[i] = num_v;
+			num_v += 1;
+		}
 	}
 	for (int i = 0; i < num_F_; ++i) {
-		out_F->row(i) = out_F_.row(i);
+		Vector3i f = out_F_.row(i);
+		if (f[0] != -1) {
+			for (int j = 0; j < 3; ++j)
+				f[j] = vertex_mapping[f[j]];
+			out_F->row(num_f++) = f;
+		}
 	}
+	out_V->conservativeResize(num_v, 3);
+	out_F->conservativeResize(num_f, 3);	
 }
 
 void MeshProjector::UpdateNearestDistance()
@@ -345,6 +359,7 @@ void MeshProjector::IterativeOptimize(FT len, bool initialized) {
 
 	//Sanity("Iterative...");
 	int iter = 0;
+	int vertex_count = 0;
 	while (true) {
 		/*
 		for (int i = 0; i < sharp_vertices_.size(); ++i) {
@@ -357,6 +372,9 @@ void MeshProjector::IterativeOptimize(FT len, bool initialized) {
 		}
 		*/
 		//printf("Iter %d: %d\n", iter, num_active_);
+		vertex_count += num_active_;
+		if (vertex_count > 10 * num_V_)
+			break;
 		for (int i = 0; i < num_active_; ++i) {
 			int vid = active_vertices_[i];
 			indices_[i] = std::make_pair(sqrD_[vid], vid);
