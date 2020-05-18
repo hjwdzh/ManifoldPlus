@@ -199,7 +199,7 @@ void MeshProjector::Project(const MatrixD& V, const MatrixI& F,
 	out_V_ = *out_V;
 	out_F_ = *out_F;
 
-	FT len = (V.row(out_F_(0,0)) - V.row(out_F_(0,1))).norm();
+	FT len = (out_V_.row(out_F_(0,0)) - out_V_.row(out_F_(0,1))).norm();
 
 	num_F_ = out_F_.rows();
 	num_V_ = out_V_.rows();
@@ -210,6 +210,7 @@ void MeshProjector::Project(const MatrixD& V, const MatrixI& F,
 	SplitVertices();
 	ComputeHalfEdge();
 	ComputeIndependentSet();
+
 	IterativeOptimize(len, false);
 
 	AdaptiveRefine(len, 1e-3);
@@ -373,7 +374,7 @@ void MeshProjector::IterativeOptimize(FT len, bool initialized) {
 		*/
 		//printf("Iter %d: %d\n", iter, num_active_);
 		vertex_count += num_active_;
-		if (vertex_count > 10 * num_V_)
+		if (vertex_count > 5 * num_V_)
 			break;
 		for (int i = 0; i < num_active_; ++i) {
 			int vid = active_vertices_[i];
@@ -550,7 +551,7 @@ void MeshProjector::AdaptiveRefine(FT len, FT ratio) {
 	MatrixD origin_FN;
 	igl::per_face_normals(V_, F_, origin_FN);	
 
-	for (int iter = 0; iter < 3; ++iter) {
+	for (int iter = 0; iter < 2; ++iter) {
 		// Collect dedges to split
 		MatrixD P;
 		MatrixD targetP;

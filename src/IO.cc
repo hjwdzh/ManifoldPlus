@@ -1,9 +1,15 @@
 #include "IO.h"
 
+#include <igl/readOFF.h>
 #include <fstream>
 #include <vector>
 
 void ReadOBJ(const char* filename, MatrixD* V, MatrixI* F) {
+	int len = strlen(filename);
+	if (strcmp(filename + (len - 3), "off") == 0) {
+		igl::readOFF(filename, *V, *F);
+		return;
+	}
 	char buffer[1024];
 	std::ifstream is(filename);
 	std::vector<Vector3> vertices;
