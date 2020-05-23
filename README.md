@@ -12,18 +12,24 @@ Advanced version of my previous Manifold algorithm from this [**repo**](https://
 git submodule update --init --recursive
 ```
 
+### Quick examples
+```
+sh compile.sh
+sh examples.sh
+```
+
 ### Build
 ```
 mkdir build
 cd build
-cmake ..
+cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j8
 ```
 
 ### Run
-The input is a random triangle mesh in obj format. The output is a watertight manifold mesh in obj format.
+The input is a random triangle mesh in obj/off format. The output is a watertight manifold mesh in obj format.
 ```
-./ManifoldPlus --input input.obj --output output.obj --depth 8 --sharp_preserve 1
+./ManifoldPlus --input input.obj --output output.obj --depth 8
 ```
 An example script is provided so that you can try several provided models. We convert inputs in data folder to outputs in results folder.
 
