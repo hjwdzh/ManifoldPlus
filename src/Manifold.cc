@@ -70,7 +70,6 @@ void Manifold::BuildTree(int depth)
 		}
 		empty_list.pop_front();
 	}
-	printf("Done...\n");
 }
 
 void Manifold::CalcBoundingBox()

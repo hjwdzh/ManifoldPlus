@@ -204,15 +204,20 @@ void MeshProjector::Project(const MatrixD& V, const MatrixI& F,
 	num_F_ = out_F_.rows();
 	num_V_ = out_V_.rows();
 
+	printf("Initialize AABB Tree...\n");
 	tree_.init(V_,F_);
 
+	printf("Build Halfedges...\n");
 	ComputeHalfEdge();
+	printf("Split non-manifold vertices...\n");
 	SplitVertices();
+	printf("Rebuild Halfedges...\n");
 	ComputeHalfEdge();
 	ComputeIndependentSet();
 
 	IterativeOptimize(len, false);
 
+	printf("Sharp preservation...\n");
 	AdaptiveRefine(len, 1e-3);
 
 	std::vector<int> vertex_mapping(num_V_, -1);
@@ -344,6 +349,7 @@ int MeshProjector::BoundaryCheck() {
 }
 
 void MeshProjector::IterativeOptimize(FT len, bool initialized) {
+	printf("Gauss-seidel update...\n");
 	if (!initialized) {
 		indices_.resize(num_V_);
 		UpdateVertexNormals(1);
@@ -372,7 +378,8 @@ void MeshProjector::IterativeOptimize(FT len, bool initialized) {
 			}
 		}
 		*/
-		//printf("Iter %d: %d\n", iter, num_active_);
+		printf("Iter %d with active vertex number %d    \r", iter, num_active_);
+		fflush(stdout);
 		vertex_count += num_active_;
 		if (vertex_count > 5 * num_V_)
 			break;
@@ -462,7 +469,7 @@ void MeshProjector::IterativeOptimize(FT len, bool initialized) {
 			break;
 		iter += 1;
 	}
-
+	printf("\n");
 }
 
 void MeshProjector::Highlight(int id, FT len) {

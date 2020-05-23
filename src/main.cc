@@ -18,7 +18,7 @@ int main(int argc, char**argv) {
 	MatrixI F, out_F;
 	ReadOBJ(parser["input"].c_str(), &V, &F);
 
-	printf("%d %d\n", V.rows(), F.rows());
+	printf("vertex number: %d    face number: %d\n", V.rows(), F.rows());
 	int depth = 0;
 	sscanf(parser["depth"].c_str(), "%d", &depth);
 
