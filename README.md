@@ -1,7 +1,7 @@
 # ManifoldPlus: A Robust and Scalable Watertight Manifold Surface Generation Method for Triangle Soups
-Advanced version of my previous Manifold algorithm from this [**repo**](https://github.com/hjwdzh/Manifold)
+Advanced version of my previous Manifold algorithm from this [**repo**](https://github.com/hjwdzh/Manifold).
 
-![Plane Fitting Results](https://github.com/hjwdzh/ManifoldPlus/raw/master/res/teaser.jpg)
+![Plane Fitting Results](https://github.com/hjwdzh/ManifoldPlus/raw/master/res/manifold-teaser.jpg)
 
 ### Dependencies
 1. Eigen
