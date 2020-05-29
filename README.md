@@ -40,5 +40,10 @@ An example script is provided so that you can try several provided models. We co
 
 **IMPORTANT**: If you use this code please cite the following (to provide) in any resulting publication:
 ```
-To appear.
+@article{huang2020manifoldplus,
+  title={ManifoldPlus: A Robust and Scalable Watertight Manifold Surface Generation Method for Triangle Soups},
+  author={Huang, Jingwei and Zhou, Yichao and Guibas, Leonidas},
+  journal={arXiv preprint arXiv:2005.11621},
+  year={2020}
+}
 ```
