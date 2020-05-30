@@ -33,10 +33,9 @@ The input is a random triangle mesh in obj/off format. The output is a watertigh
 ```
 An example script is provided so that you can try several provided models. We convert inputs in data folder to outputs in results folder.
 
-## Author
-- [Jingwei Huang](mailto:jingweih@stanford.edu)
+Copyright:
+This software is distributed for free for non-commercial use only.
 
-&copy; 2020 Jingwei Huang All Rights Reserved
 
 **IMPORTANT**: If you use this code please cite the following (to provide) in any resulting publication:
 ```
@@ -46,4 +45,29 @@ An example script is provided so that you can try several provided models. We co
   journal={arXiv preprint arXiv:2005.11621},
   year={2020}
 }
+```
+
+### Copyright
+This software is distributed for free for non-commercial use only.
+
+- [Jingwei Huang](mailto:jingweih@stanford.edu)
+
+&copy; 2020 Jingwei Huang All Rights Reserved
+
+```
+This software is provided by the copyright holders and the contributors 
+"as is" and any express or implied warranties, including, but not limited 
+to, the implied warranties of merchantability and fitness for a particular 
+purpose are disclaimed. In no event shall the copyright holders or 
+contributors be liable for any direct, indirect, incidental, special, 
+exemplary, or consequential damages (including, but not limited to, 
+procurement of substitute goods or services; loss of use, data, or profits;
+or business interruption) however caused and on any theory of liability, 
+whether in contract, strict liability, or tort (including negligence or 
+otherwise) arising in any way out of the use of this software, even if 
+advised of the possibility of such damage.
+
+The views and conclusions contained in the software and documentation are 
+those of the authors and should not be interpreted as representing official 
+policies, either expressed or implied, of Jingwei Huang.
 ```
