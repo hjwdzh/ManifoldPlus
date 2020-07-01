@@ -131,8 +131,8 @@ void Manifold::ConstructManifold()
 		if (hash_v[i])
 		{
 			hash_v[i] = (int)vertices_.size();
-			v_faces[vertices_.size()] = v_faces[i];
-			v_info_[vertices_.size()] = v_info_[i];
+			//v_faces[vertices_.size()] = v_faces[i];
+			//v_info_[vertices_.size()] = v_info_[i];
 			vertices_.push_back(nvertices[i]);
 		}
 	}
