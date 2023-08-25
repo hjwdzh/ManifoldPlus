@@ -6,6 +6,7 @@
 #include <set>
 #include <unordered_map>
 #include <unordered_set>
+#include <random>
 
 #include <Eigen/Dense>
 
@@ -185,7 +186,7 @@ void MeshProjector::ComputeIndependentSet() {
 				group.push_back(i);
 				marked_vertices += 1;
 			}
-			std::random_shuffle(group.begin(), group.end());
+			std::shuffle(group.begin(), group.end(), std::mt19937(std::random_device()()));
 		}
 		group_id += 1;
 	}	
